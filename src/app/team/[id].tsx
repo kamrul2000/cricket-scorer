@@ -1,6 +1,6 @@
 // Create (id = "new") or edit a team: name plus roster checklist.
 import { Link, Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -38,15 +38,14 @@ export default function TeamScreen() {
   const [initialised, setInitialised] = useState(false);
 
   // Fill the form once when data first arrives, so later refreshes never wipe typing.
-  useEffect(() => {
-    if (data && !initialised) {
-      if (data.team) {
-        setName(data.team.name);
-        setSelected(new Set(data.team.playerIds));
-      }
-      setInitialised(true);
+  // (Adjusting state during render, as React recommends, instead of an effect.)
+  if (data && !initialised) {
+    if (data.team) {
+      setName(data.team.name);
+      setSelected(new Set(data.team.playerIds));
     }
-  }, [data, initialised]);
+    setInitialised(true);
+  }
 
   if (error && !data) return <ErrorView message={error} onRetry={reload} />;
   if (!data || !initialised) return <LoadingView />;

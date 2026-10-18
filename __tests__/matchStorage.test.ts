@@ -232,7 +232,7 @@ describe('match storage', () => {
     const { db, service, id } = await started();
     let m = (await service.loadMatch(id))!;
     m = await service.recordEvent(m, delivery(m, { runs: 1 }));
-    m = await service.recordEvent(m, delivery(m, { runs: 1 }));
+    await service.recordEvent(m, delivery(m, { runs: 1 }));
     await db.run("UPDATE match_events SET striker_id = 'nobody' WHERE match_id = ? AND seq = 2", [id]);
     await expect(service.loadMatch(id)).rejects.toMatchObject({ code: 'DAMAGED' });
 

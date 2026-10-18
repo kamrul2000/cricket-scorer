@@ -33,7 +33,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     let sqlite: SQLiteDatabase | null = null;
-    setState({ status: 'loading' });
 
     (async () => {
       try {
@@ -65,7 +64,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       <ErrorView
         title="Could not open the local database"
         message={state.message}
-        onRetry={() => setAttempt((n) => n + 1)}
+        onRetry={() => {
+          setState({ status: 'loading' });
+          setAttempt((n) => n + 1);
+        }}
       />
     );
   }

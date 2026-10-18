@@ -14,7 +14,6 @@ export function useFocusLoad<T>(loader: () => Promise<T>, deps: DependencyList) 
   const [state, setState] = useState<LoadState<T>>({ data: null, loading: true, error: null });
   const latest = useRef(0);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const load = useCallback(async () => {
     const ticket = ++latest.current; // ignore results from an older, slower request
     setState((s) => ({ ...s, loading: true, error: null }));
@@ -26,6 +25,8 @@ export function useFocusLoad<T>(loader: () => Promise<T>, deps: DependencyList) 
         setState((s) => ({ ...s, loading: false, error: errorMessage(e) }));
       }
     }
+    // The caller lists what `loader` depends on, like the deps of useEffect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
   useFocusEffect(

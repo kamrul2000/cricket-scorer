@@ -1,6 +1,6 @@
 // Loads one match and records scoring actions with these guarantees:
 // - The screen only shows an action after its database transaction has succeeded.
-// - While a save is running, further actions are ignored (no double submission).
+// - While a save is running, further actions are silently ignored (no double submission).
 // - If a save fails, the error stays visible with Retry. Retry first re-reads the database,
 //   so an action that was in fact stored is never stored twice.
 import { useFocusEffect } from 'expo-router';
@@ -16,8 +16,14 @@ type FailedAction =
   | { kind: 'record'; event: MatchEvent; baseCount: number }
   | { kind: 'undo'; baseCount: number };
 
-/** saveFailed = a storage error, already shown by the screen with Retry. */
-export type SubmitResult = { ok: true } | { ok: false; error: string; saveFailed?: boolean };
+/**
+ * error = a message for the caller to show next to its controls, or null when there is nothing
+ * to show there: a storage failure (the screen shows it with Retry) or a repeated tap that was
+ * ignored because a save was already running.
+ */
+export type SubmitResult = { ok: true } | { ok: false; error: string | null };
+
+const IGNORED: SubmitResult = { ok: false, error: null };
 
 export function useMatchScoring(matchId: string) {
   const service = useMatchService();
@@ -27,10 +33,15 @@ export function useMatchScoring(matchId: string) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const failed = useRef<FailedAction | null>(null);
   const busy = useRef(false);
+  /** The match as last shown, readable from async callbacks without waiting for a re-render. */
   const matchRef = useRef<LoadedMatch | null>(null);
-  matchRef.current = match;
   /** Bumped after every save attempt, so a slower, older load can never overwrite newer data. */
   const generation = useRef(0);
+
+  const show = useCallback((m: LoadedMatch | null) => {
+    matchRef.current = m;
+    setMatch(m);
+  }, []);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -39,13 +50,13 @@ export function useMatchScoring(matchId: string) {
       const loaded = await service.loadMatch(matchId);
       if (startedAt !== generation.current) return matchRef.current;
       if (!loaded) setLoadError('This match no longer exists.');
-      setMatch(loaded);
+      show(loaded);
       return loaded;
     } catch (e) {
       setLoadError(errorMessage(e));
       return null;
     }
-  }, [service, matchId]);
+  }, [service, matchId, show]);
 
   // Reload whenever the screen is shown, in case the match was changed from another screen.
   useFocusEffect(
@@ -71,6 +82,8 @@ export function useMatchScoring(matchId: string) {
 
   const submit = useCallback(
     async (event: MatchEvent): Promise<SubmitResult> => {
+      // A second tap while the first is saving would be checked against stale state; drop it.
+      if (busy.current) return IGNORED;
       const current = matchRef.current;
       if (!current) return { ok: false, error: 'The match is still loading.' };
       if (failed.current) return { ok: false, error: 'Resolve the save problem shown above first.' };
@@ -78,11 +91,10 @@ export function useMatchScoring(matchId: string) {
       const check = tryAddEvent(current.setup, current.events, event);
       if (!check.ok) return { ok: false, error: check.error };
 
-      let result: SubmitResult = { ok: false, error: 'Please wait for the previous action to finish saving.' };
+      let result: SubmitResult = IGNORED;
       await exclusive(async () => {
         try {
-          const next = await service.recordEvent(current, event);
-          setMatch(next);
+          show(await service.recordEvent(current, event));
           setSaveError(null);
           result = { ok: true };
         } catch (e) {
@@ -92,22 +104,23 @@ export function useMatchScoring(matchId: string) {
           }
           failed.current = { kind: 'record', event, baseCount: current.events.length };
           setSaveError(`Not saved: ${errorMessage(e)}`);
-          result = { ok: false, error: 'The action was not saved.', saveFailed: true };
+          result = { ok: false, error: null };
         }
       });
       return result;
     },
-    [exclusive, service],
+    [exclusive, service, show],
   );
 
   const undo = useCallback(async (): Promise<SubmitResult> => {
+    if (busy.current) return IGNORED;
     const current = matchRef.current;
     if (!current) return { ok: false, error: 'The match is still loading.' };
     if (failed.current) return { ok: false, error: 'Resolve the save problem shown above first.' };
-    let result: SubmitResult = { ok: false, error: 'Please wait for the previous action to finish saving.' };
+    let result: SubmitResult = IGNORED;
     await exclusive(async () => {
       try {
-        setMatch(await service.undo(current));
+        show(await service.undo(current));
         result = { ok: true };
       } catch (e) {
         if (e instanceof ScoringError) {
@@ -116,11 +129,11 @@ export function useMatchScoring(matchId: string) {
         }
         failed.current = { kind: 'undo', baseCount: current.events.length };
         setSaveError(`Undo not saved: ${errorMessage(e)}`);
-        result = { ok: false, error: 'Undo was not saved.', saveFailed: true };
+        result = { ok: false, error: null };
       }
     });
     return result;
-  }, [exclusive, service]);
+  }, [exclusive, service, show]);
 
   /** Re-reads the database, then repeats the failed action only if it was not stored. */
   const retry = useCallback(async () => {
@@ -134,9 +147,9 @@ export function useMatchScoring(matchId: string) {
         if (action.kind === 'record') {
           const last = fresh.events[n - 1];
           const alreadyStored = n === action.baseCount + 1 && JSON.stringify(last) === JSON.stringify(action.event);
-          setMatch(alreadyStored ? fresh : n === action.baseCount ? await service.recordEvent(fresh, action.event) : fresh);
+          show(alreadyStored ? fresh : n === action.baseCount ? await service.recordEvent(fresh, action.event) : fresh);
         } else {
-          setMatch(n === action.baseCount ? await service.undo(fresh) : fresh);
+          show(n === action.baseCount ? await service.undo(fresh) : fresh);
         }
         failed.current = null;
         setSaveError(null);
@@ -144,7 +157,7 @@ export function useMatchScoring(matchId: string) {
         setSaveError(`Still not saved: ${errorMessage(e)}`);
       }
     });
-  }, [exclusive, service, matchId]);
+  }, [exclusive, service, matchId, show]);
 
   /** Gives up on the failed action and shows what is actually stored. */
   const discardFailed = useCallback(async () => {

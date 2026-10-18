@@ -82,10 +82,11 @@ export default function MatchScorecardScreen() {
         <Text style={styles.meta}>Started {new Date(match.createdAt).toLocaleString()}</Text>
       </View>
 
+      {/* dismissTo returns to the scoring screen if we came from it, so screens do not pile up. */}
       {!completed ? (
-        <Button title="Resume scoring" onPress={() => router.push(`/match/${id}/score`)} />
+        <Button title="Resume scoring" onPress={() => router.dismissTo(`/match/${id}/score`)} />
       ) : (
-        <Button title="Open scoring screen (to undo)" variant="secondary" onPress={() => router.push(`/match/${id}/score`)} />
+        <Button title="Open scoring screen (to undo)" variant="secondary" onPress={() => router.dismissTo(`/match/${id}/score`)} />
       )}
 
       <Chips options={tabs} value={tab} onChange={setTab} accessibilityLabel="Choose innings and view" />

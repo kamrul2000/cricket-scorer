@@ -1,6 +1,6 @@
 // Full delivery editor: ball type, runs source, runs completed, boundary, and dismissal.
 // The preview is produced by the scoring engine itself, so what you see is what will be saved.
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { DISMISSAL_LABELS, playerName } from '../../domain/format';
@@ -63,15 +63,10 @@ interface Props {
   onSubmit: (event: MatchEvent) => Promise<SubmitResult>;
 }
 
+/** Mount a fresh editor for each delivery; the draft starts from `preset` when it mounts. */
 export function DeliveryEditor({ visible, preset, state, events, saving, onCancel, onSubmit }: Props) {
   const [draft, setDraft] = useState<Draft>(() => draftFor(preset));
   const [submitError, setSubmitError] = useState<string | null>(null);
-  useEffect(() => {
-    if (visible) {
-      setDraft(draftFor(preset));
-      setSubmitError(null);
-    }
-  }, [visible, preset]);
 
   const inn = currentInnings(state);
   const set = (patch: Partial<Draft>) => {
@@ -144,8 +139,9 @@ export function DeliveryEditor({ visible, preset, state, events, saving, onCance
   const save = async () => {
     if (!built.event || !check?.ok) return;
     const result = await onSubmit(built.event);
-    if (result.ok) onCancel();
-    else if (!result.saveFailed) setSubmitError(result.error);
+    // Close on success, and on a storage failure too: the scoring screen shows that with Retry.
+    if (result.ok || result.error === null) onCancel();
+    else setSubmitError(result.error);
   };
 
   const wicketOptions: { value: DismissalKind | 'none'; label: string }[] = [
@@ -253,9 +249,8 @@ export function DeliveryEditor({ visible, preset, state, events, saving, onCance
                 onChange={(v) => set({ runOutEnd: v as End })}
               />
               <Text style={styles.help}>
-                Striker's end = where {strikerName} faced this ball. The batter who is not out finishes at the other end,
-                and the new batter comes in at the end where the wicket was broken. Enter only runs completed before the
-                run out.
+                {`Striker's end = where ${strikerName} faced this ball. The batter who is not out finishes at the other end, ` +
+                  'and the new batter comes in at the end where the wicket was broken. Enter only runs completed before the run out.'}
               </Text>
               <Text style={styles.heading}>Fielder (optional)</Text>
               <Chips options={fielders} value={draft.fielderId} onChange={(v) => set({ fielderId: v === draft.fielderId ? null : v })} />

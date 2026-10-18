@@ -1,6 +1,6 @@
 // The scoring screen. Every tap becomes one event that is validated by the scoring engine and
 // saved in a transaction before the screen updates.
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,15 +27,24 @@ import { colors, font, radius, spacing } from '../../../theme/theme';
 export default function ScoreScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { match, loadError, saving, saveError, submit, undo, retry, discardFailed, reload } = useMatchScoring(id);
   const [editor, setEditor] = useState<EditorPreset | null>(null);
   const [quickError, setQuickError] = useState<string | null>(null);
 
-  // A storage failure is shown on this screen (with Retry), so close the editor.
+  // Every saved action is already in the database, so leaving is always safe, except for an
+  // action whose save failed: leaving gives up on it, so ask first (Android back or header back).
   useEffect(() => {
-    if (saveError) setEditor(null);
-  }, [saveError]);
+    if (!saveError) return;
+    return navigation.addListener('beforeRemove', (e) => {
+      e.preventDefault();
+      Alert.alert('Leave without saving?', 'The last action was not saved. If you leave now, it will not be recorded.', [
+        { text: 'Stay', style: 'cancel' },
+        { text: 'Leave', style: 'destructive', onPress: () => navigation.dispatch(e.data.action) },
+      ]);
+    });
+  }, [navigation, saveError]);
 
   if (loadError) return <ErrorView title="Could not open this match" message={loadError} onRetry={() => void reload()} />;
   if (!match) return <LoadingView label="Loading match…" />;
@@ -57,7 +66,7 @@ export default function ScoreScreen() {
       bowlerId: inn.bowlerId,
       ...input,
     });
-    if (!r.ok && !r.saveFailed) setQuickError(r.error);
+    if (!r.ok && r.error) setQuickError(r.error);
   };
 
   const confirmUndo = () => {
@@ -70,7 +79,7 @@ export default function ScoreScreen() {
         onPress: async () => {
           setQuickError(null);
           const r = await undo();
-          if (!r.ok && !r.saveFailed) setQuickError(r.error);
+          if (!r.ok && r.error) setQuickError(r.error);
         },
       },
     ]);

@@ -1,5 +1,5 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -20,7 +20,7 @@ export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
   const { run, pending } = useGuardedAction();
 
-  const { data, loading, error, reload } = useFocusLoad(
+  const { data, error, reload } = useFocusLoad(
     async () => {
       const player = await players.get(id);
       const teamNames = player ? await players.activeTeamNames(id) : [];
@@ -33,10 +33,14 @@ export default function PlayerScreen() {
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Copy the saved name into the form whenever it changes (adjusting state during render,
+  // as React recommends, instead of an effect).
   const loadedName = data?.player?.name;
-  useEffect(() => {
-    if (loadedName !== undefined) setName(loadedName);
-  }, [loadedName]);
+  const [syncedName, setSyncedName] = useState<string | undefined>(undefined);
+  if (loadedName !== undefined && loadedName !== syncedName) {
+    setSyncedName(loadedName);
+    setName(loadedName);
+  }
 
   if (error && !data) return <ErrorView message={error} onRetry={reload} />;
   if (!data) return <LoadingView />;

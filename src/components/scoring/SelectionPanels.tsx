@@ -24,7 +24,7 @@ function useSubmitWithError(onSubmit: PanelProps['onSubmit']) {
   const submit = async (event: MatchEvent) => {
     setError(null);
     const r = await onSubmit(event);
-    if (!r.ok && !r.saveFailed) setError(r.error);
+    if (!r.ok && r.error) setError(r.error);
   };
   return { error, submit };
 }
