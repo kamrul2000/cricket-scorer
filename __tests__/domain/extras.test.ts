@@ -52,7 +52,7 @@ describe('extras', () => {
     expect(inn.runs).toBe(6);
     expect(inn.extras).toEqual({ wides: 0, noBalls: 0, byes: 4, legByes: 2 });
     expect(inn.batters.map((b) => b.runs)).toEqual([0, 0]);
-    expect(inn.batters[0].ballsFaced).toBe(1);
+    expect(inn.batters[0].ballsFaced).toBe(2); // byes and leg byes are still balls faced
     expect(inn.bowlers[0].runsConceded).toBe(0);
     expect(inn.legalBalls).toBe(2);
     expect(inn.batters[0].fours).toBe(0); // a bye boundary is not a four hit by the batter

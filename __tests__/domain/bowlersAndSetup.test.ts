@@ -31,11 +31,13 @@ describe('bowler rules', () => {
   });
 
   it('blocks a choice that would make the innings impossible to finish under the limit', () => {
-    // 6 overs, 3 bowlers, max 2 each: A B A B leaves C to bowl two overs in a row.
+    // 6 overs, 3 bowlers, max 2 each: A B A can still finish (A B A C B C),
+    // but A B A B would leave C to bowl the last two overs in a row.
     const m = over(startedMatch({ oversPerInnings: 6, playersPerSide: 3, maxOversPerBowler: 2 }));
     m.bowler('b2');
+    over(m).bowler('b1');
     over(m);
-    expect(m.rejectionOf({ type: 'newBowler', playerId: 'b1' })).toMatch(/too few eligible bowlers/);
+    expect(m.rejectionOf({ type: 'newBowler', playerId: 'b2' })).toMatch(/too few eligible bowlers/);
     m.bowler('b3');
   });
 
