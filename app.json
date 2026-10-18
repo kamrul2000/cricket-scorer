@@ -1,15 +1,15 @@
-{
+﻿{
   "expo": {
-    "name": "cricket-scorer",
+    "name": "Cricket Scorer",
     "slug": "cricket-scorer",
+    "scheme": "cricketscorer",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "ios": {
-      "supportsTablet": true
-    },
+    "platforms": ["android"],
     "android": {
+      "package": "com.cricketscorer.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -18,8 +18,6 @@
       },
       "predictiveBackGestureEnabled": false
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    }
+    "plugins": ["expo-router", "expo-sqlite"]
   }
 }
