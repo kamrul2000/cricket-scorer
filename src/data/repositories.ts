@@ -1,5 +1,6 @@
 import type { Database } from './database';
 import type { RepositoryDeps } from './deps';
+import { createMatchRepository } from './matchRepository';
 import { createPlayerRepository } from './playerRepository';
 import { createTeamRepository } from './teamRepository';
 
@@ -7,6 +8,7 @@ export function createRepositories(db: Database, deps: RepositoryDeps) {
   return {
     players: createPlayerRepository(db, deps),
     teams: createTeamRepository(db, deps),
+    matches: createMatchRepository(db, deps),
   };
 }
 

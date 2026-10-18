@@ -5,6 +5,7 @@ import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
 import { ErrorView, LoadingView } from '../components/StateViews';
+import { createMatchService, type MatchService } from '../services/matchService';
 import { errorMessage } from '../utils/errors';
 import { wrapExpoDatabase } from './database';
 import { migrate } from './migrations';
@@ -14,6 +15,7 @@ export const DATABASE_NAME = 'cricket-scorer.db';
 
 interface AppData {
   repos: Repositories;
+  matchService: MatchService;
   schemaVersion: number;
 }
 
@@ -44,7 +46,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           newId: randomUUID,
           now: () => new Date().toISOString(),
         });
-        if (!cancelled) setState({ status: 'ready', data: { repos, schemaVersion } });
+        const matchService = createMatchService(repos.matches);
+        if (!cancelled) setState({ status: 'ready', data: { repos, matchService, schemaVersion } });
       } catch (e) {
         if (!cancelled) setState({ status: 'error', message: errorMessage(e) });
       }
@@ -77,4 +80,8 @@ export function useAppData(): AppData {
 
 export function useRepositories(): Repositories {
   return useAppData().repos;
+}
+
+export function useMatchService(): MatchService {
+  return useAppData().matchService;
 }

@@ -1,6 +1,13 @@
 // Display helpers. Screens use these instead of formatting cricket values themselves.
-import { BALLS_PER_OVER, type MatchSetup } from './match';
-import type { DeliveryRecord, InningsState, MatchResult, MatchState, WicketRecord } from './scoring';
+import { BALLS_PER_OVER, type MatchEvent, type MatchSetup } from './match';
+import {
+  currentInnings,
+  type DeliveryRecord,
+  type InningsState,
+  type MatchResult,
+  type MatchState,
+  type WicketRecord,
+} from './scoring';
 
 /**
  * Overs are stored as an integer count of legal balls. "12.3" means 12 overs and 3 balls; it
@@ -98,3 +105,60 @@ export function deliveryLabel(d: DeliveryRecord): string {
   if (d.wicket) label = label === '0' ? 'W' : `${label}+W`;
   return label;
 }
+
+/** "45/2" */
+export function scoreText(inn: InningsState): string {
+  return `${inn.runs}/${inn.wickets}`;
+}
+
+/** Batting strike rate: runs per 100 balls faced. */
+export function strikeRate(runs: number, ballsFaced: number): string {
+  return ballsFaced === 0 ? '-' : ((runs * 100) / ballsFaced).toFixed(1);
+}
+
+/** Bowling economy: runs per 6 legal balls. */
+export function economy(runsConceded: number, legalBalls: number): string {
+  return formatRate(runRate(runsConceded, legalBalls));
+}
+
+/** One-line status for the match list. */
+export function matchSummary(state: MatchState): string {
+  if (state.result) return resultText(state.setup, state.result);
+  const inn = currentInnings(state);
+  if (!inn) return 'Not started';
+  const head = `${inn.battingTeam.name} ${scoreText(inn)} (${formatOvers(inn.legalBalls)} ov)`;
+  if (inn.completed) return `${head}, innings break`;
+  const chase = chaseInfo(state, inn);
+  return chase ? `${head}, need ${chase.runsNeeded} from ${chase.ballsRemaining} balls` : head;
+}
+
+/** Describes the most recent event, e.g. for the undo confirmation. */
+export function describeLastEvent(state: MatchState, events: readonly MatchEvent[]): string | null {
+  const event = events[events.length - 1];
+  if (!event) return null;
+  const name = (id: string) => playerName(state.setup, id);
+  switch (event.type) {
+    case 'inningsStart':
+      return `Start of innings: ${name(event.strikerId)} and ${name(event.nonStrikerId)} opening, ${name(event.bowlerId)} bowling`;
+    case 'newBatter':
+      return `${name(event.playerId)} chosen as the new batter`;
+    case 'newBowler':
+      return `${name(event.playerId)} chosen to bowl the next over`;
+    case 'delivery': {
+      const index = events.length - 1;
+      const record = state.innings.flatMap((i) => i.deliveries).find((d) => d.eventIndex === index);
+      if (!record) return 'Last delivery';
+      const wicket = record.wicket ? `, ${name(record.wicket.playerOutId)} out` : '';
+      return `Over ${record.over + 1}: ${deliveryLabel(record)} (${name(record.bowlerId)} to ${name(record.strikerId)}${wicket})`;
+    }
+  }
+}
+
+export const DISMISSAL_LABELS: Record<WicketRecord['kind'], string> = {
+  bowled: 'Bowled',
+  caught: 'Caught',
+  lbw: 'LBW',
+  stumped: 'Stumped',
+  hitWicket: 'Hit wicket',
+  runOut: 'Run out',
+};

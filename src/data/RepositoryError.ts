@@ -4,7 +4,11 @@ export type RepositoryErrorCode =
   | 'DUPLICATE_NAME'
   | 'NOT_FOUND'
   | 'ARCHIVED'
-  | 'INVALID_ROSTER';
+  | 'INVALID_ROSTER'
+  /** The stored data changed since it was read (e.g. a duplicate submission). */
+  | 'CONFLICT'
+  /** Stored data is inconsistent and cannot be used safely. */
+  | 'DAMAGED';
 
 export class RepositoryError extends Error {
   readonly code: RepositoryErrorCode;
