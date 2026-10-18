@@ -3,7 +3,8 @@
 // - While a save is running, further actions are ignored (no double submission).
 // - If a save fails, the error stays visible with Retry. Retry first re-reads the database,
 //   so an action that was in fact stored is never stored twice.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
 
 import { useMatchService } from '../data/AppDataProvider';
 import type { MatchEvent } from '../domain/match';
@@ -28,11 +29,15 @@ export function useMatchScoring(matchId: string) {
   const busy = useRef(false);
   const matchRef = useRef<LoadedMatch | null>(null);
   matchRef.current = match;
+  /** Bumped after every save attempt, so a slower, older load can never overwrite newer data. */
+  const generation = useRef(0);
 
   const load = useCallback(async () => {
     setLoadError(null);
+    const startedAt = generation.current;
     try {
       const loaded = await service.loadMatch(matchId);
+      if (startedAt !== generation.current) return matchRef.current;
       if (!loaded) setLoadError('This match no longer exists.');
       setMatch(loaded);
       return loaded;
@@ -42,9 +47,12 @@ export function useMatchScoring(matchId: string) {
     }
   }, [service, matchId]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Reload whenever the screen is shown, in case the match was changed from another screen.
+  useFocusEffect(
+    useCallback(() => {
+      if (!busy.current && !failed.current) void load();
+    }, [load]),
+  );
 
   /** Runs one save at a time. Returns false if another save is already running. */
   const exclusive = useCallback(async (work: () => Promise<void>): Promise<boolean> => {
@@ -54,6 +62,7 @@ export function useMatchScoring(matchId: string) {
     try {
       await work();
     } finally {
+      generation.current += 1;
       busy.current = false;
       setSaving(false);
     }
