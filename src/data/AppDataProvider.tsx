@@ -1,10 +1,12 @@
 // Opens the database once, runs migrations, then gives screens access to repositories.
 // Shows a loading screen meanwhile and a visible error (with Retry) if startup fails.
+import Constants from 'expo-constants';
 import { randomUUID } from 'expo-crypto';
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
 import { ErrorView, LoadingView } from '../components/StateViews';
+import { createBackupService, type BackupService } from '../services/backupService';
 import { createMatchService, type MatchService } from '../services/matchService';
 import { errorMessage } from '../utils/errors';
 import { wrapExpoDatabase } from './database';
@@ -16,6 +18,7 @@ export const DATABASE_NAME = 'cricket-scorer.db';
 interface AppData {
   repos: Repositories;
   matchService: MatchService;
+  backupService: BackupService;
   schemaVersion: number;
 }
 
@@ -46,7 +49,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           now: () => new Date().toISOString(),
         });
         const matchService = createMatchService(repos.matches);
-        if (!cancelled) setState({ status: 'ready', data: { repos, matchService, schemaVersion } });
+        const backupService = createBackupService(repos.backups, {
+          appVersion: Constants.expoConfig?.version ?? 'unknown',
+          now: () => new Date(),
+        });
+        if (!cancelled) setState({ status: 'ready', data: { repos, matchService, backupService, schemaVersion } });
       } catch (e) {
         if (!cancelled) setState({ status: 'error', message: errorMessage(e) });
       }
@@ -86,4 +93,8 @@ export function useRepositories(): Repositories {
 
 export function useMatchService(): MatchService {
   return useAppData().matchService;
+}
+
+export function useBackupService(): BackupService {
+  return useAppData().backupService;
 }

@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -10,6 +10,7 @@ import { colors, font, radius, spacing } from '../../theme/theme';
 
 export default function SettingsScreen() {
   const { schemaVersion } = useAppData();
+  const router = useRouter();
   const appVersion = Constants.expoConfig?.version ?? 'unknown';
   const [armed, setArmed] = useState(faultInjection.failNextSave);
   // The flag clears itself after one failed save, so re-read it whenever this tab is shown.
@@ -29,16 +30,17 @@ export default function SettingsScreen() {
           the app or clearing its storage permanently deletes your data.
         </Text>
         <Text style={styles.line}>
-          Local storage is not an automatic backup. Backup and restore will be added in a later
-          stage.
+          Local storage is not an automatic backup. Create a backup file regularly and keep it off
+          this phone.
         </Text>
+        <Button title="Backup and restore" onPress={() => router.push('/backup')} />
       </View>
       {__DEV__ ? (
         <View style={styles.card}>
           <Text style={styles.heading}>Developer testing</Text>
           <Text style={styles.line}>
-            Only visible in development builds. Makes the next match save fail inside its transaction, so you can
-            check the error message, Retry, and that nothing partial was stored.
+            Only visible in development builds. Makes the next save (a scoring action or a restore) fail inside its
+            transaction, so you can check the error message, Retry, and that nothing partial was stored.
           </Text>
           <Button
             title={armed ? 'Next save will fail (tap to cancel)' : 'Make the next save fail'}

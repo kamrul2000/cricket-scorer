@@ -14,6 +14,9 @@ import {
 } from '../domain/scoring';
 import type { MatchRepository, MatchRowUpdate, StoredMatch } from '../data/matchRepository';
 import { RepositoryError } from '../data/RepositoryError';
+import { takeFault } from './faultInjection';
+
+export { faultInjection } from './faultInjection';
 
 export interface LoadedMatch {
   id: string;
@@ -23,24 +26,13 @@ export interface LoadedMatch {
   state: MatchState;
 }
 
-/**
- * Developer testing aid (shown in Settings only in development builds): the next save fails
- * inside its transaction, after writing, so you can see the error handling and confirm that
- * nothing partial is stored.
- */
-export const faultInjection = { failNextSave: false };
-
-function takeFault() {
-  const fail = faultInjection.failNextSave;
-  faultInjection.failNextSave = false;
-  return { failBeforeCommit: fail };
-}
-
-function rowUpdate(state: MatchState): MatchRowUpdate {
+/** The match-list columns, always recomputed from the scoring engine's state. */
+export function rowUpdate(state: MatchState): MatchRowUpdate {
   return { status: state.result ? 'completed' : 'inProgress', summary: matchSummary(state) };
 }
 
-function toLoaded(stored: StoredMatch): LoadedMatch {
+/** Replays a stored match through the scoring engine. Throws RepositoryError('DAMAGED') if it cannot. */
+export function toLoaded(stored: StoredMatch): LoadedMatch {
   try {
     const state = computeMatchState(stored.setup, stored.events);
     return { id: stored.id, createdAt: stored.createdAt, setup: stored.setup, events: stored.events, state };

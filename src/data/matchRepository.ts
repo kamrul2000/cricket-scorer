@@ -42,7 +42,7 @@ export interface MatchRowUpdate {
   summary: string;
 }
 
-interface MatchRow {
+export interface MatchRow {
   id: string;
   status: MatchStatus;
   team_a_id: string;
@@ -59,6 +59,49 @@ interface MatchRow {
   event_count: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface MatchPlayerRow {
+  match_id: string;
+  team_id: string;
+  player_id: string;
+  lineup_order: number;
+  player_name: string;
+}
+
+/**
+ * Rebuilds a stored match from its rows (lineup rows in lineup order, event rows in seq order).
+ * Used when loading and when checking a backup. Throws RepositoryError('DAMAGED') if the rows
+ * are inconsistent. It does not replay the events; the match service does that.
+ */
+export function storedMatchFromRows(m: MatchRow, players: readonly MatchPlayerRow[], rows: readonly EventRow[]): StoredMatch {
+  if (rows.length !== m.event_count || rows.some((row, i) => row.seq !== i)) {
+    throw new RepositoryError('DAMAGED', 'The saved history of this match is incomplete.');
+  }
+  let events: MatchEvent[];
+  try {
+    events = rows.map(rowToEvent);
+  } catch (e) {
+    if (e instanceof DamagedRowError) throw new RepositoryError('DAMAGED', e.message);
+    throw e;
+  }
+
+  const lineup = (teamId: string) =>
+    players.filter((p) => p.team_id === teamId).map((p) => ({ playerId: p.player_id, name: p.player_name }));
+  const setup: MatchSetup = {
+    rules: {
+      oversPerInnings: m.overs_per_innings,
+      playersPerSide: m.players_per_side,
+      freeHitAfterNoBall: m.free_hit_after_no_ball === 1,
+      maxOversPerBowler: m.max_overs_per_bowler,
+    },
+    teams: [
+      { teamId: m.team_a_id, name: m.team_a_name, players: lineup(m.team_a_id) },
+      { teamId: m.team_b_id, name: m.team_b_name, players: lineup(m.team_b_id) },
+    ],
+    toss: { winnerTeamId: m.toss_winner_team_id, decision: m.toss_decision },
+  };
+  return { id: m.id, status: m.status, createdAt: m.created_at, updatedAt: m.updated_at, setup, events };
 }
 
 const INSERT_EVENT_SQL = `INSERT INTO match_events (match_id, created_at, ${EVENT_COLUMNS.join(', ')})
@@ -136,42 +179,15 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
     async load(id: string): Promise<StoredMatch | null> {
       const m = await db.first<MatchRow>('SELECT * FROM matches WHERE id = ?', [id]);
       if (!m) return null;
-      const players = await db.all<{ team_id: string; player_id: string; player_name: string }>(
-        'SELECT team_id, player_id, player_name FROM match_players WHERE match_id = ? ORDER BY lineup_order',
+      const players = await db.all<MatchPlayerRow>(
+        'SELECT * FROM match_players WHERE match_id = ? ORDER BY lineup_order',
         [id],
       );
       const rows = await db.all<EventRow>(
         `SELECT ${EVENT_COLUMNS.join(', ')} FROM match_events WHERE match_id = ? ORDER BY seq`,
         [id],
       );
-
-      if (rows.length !== m.event_count || rows.some((row, i) => row.seq !== i)) {
-        throw new RepositoryError('DAMAGED', 'The saved history of this match is incomplete.');
-      }
-      let events: MatchEvent[];
-      try {
-        events = rows.map(rowToEvent);
-      } catch (e) {
-        if (e instanceof DamagedRowError) throw new RepositoryError('DAMAGED', e.message);
-        throw e;
-      }
-
-      const lineup = (teamId: string) =>
-        players.filter((p) => p.team_id === teamId).map((p) => ({ playerId: p.player_id, name: p.player_name }));
-      const setup: MatchSetup = {
-        rules: {
-          oversPerInnings: m.overs_per_innings,
-          playersPerSide: m.players_per_side,
-          freeHitAfterNoBall: m.free_hit_after_no_ball === 1,
-          maxOversPerBowler: m.max_overs_per_bowler,
-        },
-        teams: [
-          { teamId: m.team_a_id, name: m.team_a_name, players: lineup(m.team_a_id) },
-          { teamId: m.team_b_id, name: m.team_b_name, players: lineup(m.team_b_id) },
-        ],
-        toss: { winnerTeamId: m.toss_winner_team_id, decision: m.toss_decision },
-      };
-      return { id: m.id, status: m.status, createdAt: m.created_at, updatedAt: m.updated_at, setup, events };
+      return storedMatchFromRows(m, players, rows);
     },
 
     /**

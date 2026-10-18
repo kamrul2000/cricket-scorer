@@ -24,6 +24,7 @@ export default function RootLayout() {
           <Stack.Screen name="match/new" options={{ title: 'New match' }} />
           <Stack.Screen name="match/[id]/score" options={{ title: 'Scoring' }} />
           <Stack.Screen name="match/[id]/index" options={{ title: 'Scorecard' }} />
+          <Stack.Screen name="backup" options={{ title: 'Backup and restore' }} />
         </Stack>
       </AppDataProvider>
     </SafeAreaProvider>
