@@ -5,6 +5,7 @@ import { FlatList, StyleSheet, Switch, Text, View } from 'react-native';
 import { Button } from '../../components/Button';
 import { ListRow } from '../../components/ListRow';
 import { EmptyState, ErrorBanner, ErrorView, LoadingView } from '../../components/StateViews';
+import { TeamLogo } from '../../components/TeamLogo';
 import { useRepositories } from '../../data/AppDataProvider';
 import { useFocusLoad } from '../../hooks/useFocusLoad';
 import { colors, font, spacing } from '../../theme/theme';
@@ -52,8 +53,9 @@ export default function TeamsScreen() {
           }
           renderItem={({ item }) => (
             <ListRow
+              leading={<TeamLogo name={item.name} logoFile={item.logoFile} size={44} />}
               title={item.name}
-              subtitle={`${item.playerCount} ${item.playerCount === 1 ? 'player' : 'players'}`}
+              subtitle={`${item.playerCount} ${item.playerCount === 1 ? 'player' : 'players'}${item.description ? ` · ${item.description}` : ''}`}
               badge={item.archivedAt ? 'Archived' : undefined}
               onPress={() => router.push(`/team/${item.id}`)}
             />

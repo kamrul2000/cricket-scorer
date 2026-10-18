@@ -4,10 +4,12 @@ import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../../components/Button';
+import { CareerStats } from '../../components/CareerStats';
 import { ErrorBanner, ErrorView, LoadingView } from '../../components/StateViews';
 import { TextField } from '../../components/TextField';
-import { useRepositories } from '../../data/AppDataProvider';
+import { useMatchService, useRepositories } from '../../data/AppDataProvider';
 import { validateName } from '../../domain/people';
+import { playerCareer } from '../../domain/stats';
 import { useFocusLoad } from '../../hooks/useFocusLoad';
 import { useGuardedAction } from '../../hooks/useGuardedAction';
 import { colors, font, spacing } from '../../theme/theme';
@@ -16,6 +18,7 @@ import { errorMessage } from '../../utils/errors';
 export default function PlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { players } = useRepositories();
+  const matchService = useMatchService();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { run, pending } = useGuardedAction();
@@ -24,9 +27,11 @@ export default function PlayerScreen() {
     async () => {
       const player = await players.get(id);
       const teamNames = player ? await players.activeTeamNames(id) : [];
-      return { player, teamNames };
+      const played = player ? await matchService.loadMatchesForPlayer(id) : { matches: [], skipped: 0 };
+      const career = playerCareer(id, played.matches.map((m) => m.state));
+      return { player, teamNames, career, skipped: played.skipped };
     },
-    [players, id],
+    [players, matchService, id],
   );
 
   const [name, setName] = useState('');
@@ -44,7 +49,7 @@ export default function PlayerScreen() {
 
   if (error && !data) return <ErrorView message={error} onRetry={reload} />;
   if (!data) return <LoadingView />;
-  const { player, teamNames } = data;
+  const { player, teamNames, career, skipped } = data;
   if (!player) return <ErrorView title="Player not found" message="This player no longer exists." />;
 
   const archived = player.archivedAt !== null;
@@ -115,6 +120,8 @@ export default function PlayerScreen() {
           {teamNames.length ? teamNames.join(', ') : 'Not on any active team.'}
         </Text>
       </View>
+
+      <CareerStats career={career} skipped={skipped} />
 
       {archived ? (
         <Button title="Restore player" onPress={() => void changeArchived(false)} loading={pending} />

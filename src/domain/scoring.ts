@@ -89,7 +89,35 @@ export interface FallOfWicket {
   playerOutId: string;
 }
 
-export type InningsEndReason = 'overs' | 'allOut' | 'targetReached';
+/** Two batters batting together, from when the second of them arrived until a wicket. */
+export interface Partnership {
+  /** 1 = the opening partnership, 2 = after the first wicket, ... */
+  number: number;
+  batterIds: [string, string];
+  /** Runs off the bat by each batter in `batterIds` order while they batted together. */
+  batterRuns: [number, number];
+  /** Team runs added, including extras. */
+  runs: number;
+  /** Balls faced by the pair (wides excluded, the same convention as a batter's balls faced). */
+  balls: number;
+  /** Ended by a wicket. false = unbroken (still together, or not out at the end). */
+  broken: boolean;
+}
+
+/** One over: runs and wickets in it, and the team score at its end (or now, if unfinished). */
+export interface OverSummary {
+  /** 0-based over number. */
+  over: number;
+  bowlerId: string;
+  runs: number;
+  wickets: number;
+  legalBalls: number;
+  totalRuns: number;
+  totalWickets: number;
+  complete: boolean;
+}
+
+export type InningsEndReason = 'overs' | 'allOut' | 'targetReached' | 'abandoned';
 
 export interface InningsState {
   index: 0 | 1;
@@ -113,6 +141,12 @@ export interface InningsState {
   previousOverBowlerId: string | null;
   deliveries: DeliveryRecord[];
   fallOfWickets: FallOfWicket[];
+  /** In order; the last one is the current pair while the innings is in progress. */
+  partnerships: Partnership[];
+  /** Over-by-over summary, in order. */
+  overs: OverSummary[];
+  /** Scorer corrections that swapped the batters' ends, with the legal-ball count at the time. */
+  strikeSwaps: { eventIndex: number; legalBalls: number }[];
   /** The next delivery is a free hit. */
   freeHitNext: boolean;
   completed: boolean;
@@ -130,6 +164,8 @@ export type NextAction =
 
 export type MatchResult =
   | { type: 'tie' }
+  /** The match was abandoned before a result (see the 'abandon' event). */
+  | { type: 'noResult' }
   | { type: 'winByRuns'; winnerTeamId: string; runs: number }
   | { type: 'winByWickets'; winnerTeamId: string; wickets: number; ballsRemaining: number };
 
@@ -220,9 +256,47 @@ function applyEvent(state: MatchState, event: MatchEvent, eventIndex: number): s
       return applyNewBowler(state, event.playerId);
     case 'delivery':
       return applyDelivery(state, event, eventIndex);
+    case 'swapBatters':
+      return applySwapBatters(state, eventIndex);
+    case 'abandon':
+      return applyAbandon(state);
     default:
       return 'Unknown event type.';
   }
+}
+
+/** Swapping is allowed whenever both batters are at the crease in an unfinished innings. */
+export function canSwapBatters(state: MatchState): boolean {
+  const inn = currentInnings(state);
+  return (
+    !!inn &&
+    !inn.completed &&
+    inn.strikerId !== null &&
+    inn.nonStrikerId !== null &&
+    (state.next.type === 'delivery' || state.next.type === 'selectBowler')
+  );
+}
+
+function applySwapBatters(state: MatchState, eventIndex: number): string | null {
+  if (state.next.type === 'selectBatter') return 'Choose the new batter before swapping the batters.';
+  if (!canSwapBatters(state)) return 'The batters can only be swapped while an innings is in progress.';
+  const inn = currentInnings(state)!;
+  [inn.strikerId, inn.nonStrikerId] = [inn.nonStrikerId, inn.strikerId];
+  inn.strikeSwaps.push({ eventIndex, legalBalls: inn.legalBalls });
+  return null; // nothing else changes: no runs, no ball, the same next action
+}
+
+function applyAbandon(state: MatchState): string | null {
+  if (state.result || state.next.type === 'matchComplete') return 'The match is already complete.';
+  const inn = currentInnings(state);
+  if (inn && !inn.completed) {
+    inn.completed = true;
+    inn.endReason = 'abandoned';
+    inn.freeHitNext = false;
+  }
+  state.result = { type: 'noResult' };
+  state.next = { type: 'matchComplete' };
+  return null;
 }
 
 function needMessage(next: NextAction): string {
@@ -245,6 +319,10 @@ const nameIn = (team: TeamLineup, id: string) =>
   team.players.find((p) => p.playerId === id)?.name ?? 'Unknown player';
 const zeroExtras = (): Extras => ({ wides: 0, noBalls: 0, byes: 0, legByes: 0 });
 export const extrasTotal = (e: Extras) => e.wides + e.noBalls + e.byes + e.legByes;
+
+function newPartnership(number: number, firstId: string, secondId: string): Partnership {
+  return { number, batterIds: [firstId, secondId], batterRuns: [0, 0], runs: 0, balls: 0, broken: false };
+}
 
 function newBatter(team: TeamLineup, id: string): BatterStats {
   return { playerId: id, name: nameIn(team, id), runs: 0, ballsFaced: 0, fours: 0, sixes: 0, wicket: null };
@@ -299,6 +377,9 @@ function applyInningsStart(state: MatchState, strikerId: string, nonStrikerId: s
     previousOverBowlerId: null,
     deliveries: [],
     fallOfWickets: [],
+    partnerships: [newPartnership(1, strikerId, nonStrikerId)],
+    overs: [],
+    strikeSwaps: [],
     freeHitNext: false,
     completed: false,
     endReason: null,
@@ -316,6 +397,9 @@ function applyNewBatter(state: MatchState, playerId: string): string | null {
   if (!inLineup(inn.battingTeam, playerId)) return `The batter must be in the ${inn.battingTeam.name} lineup.`;
   if (inn.batters.some((b) => b.playerId === playerId)) return `${nameIn(inn.battingTeam, playerId)} has already batted.`;
 
+  // The batter who survived the last wicket forms a new partnership with the new batter.
+  const survivorId = inn.strikerId ?? inn.nonStrikerId!;
+  inn.partnerships.push(newPartnership(inn.partnerships.length + 1, survivorId, playerId));
   inn.batters.push(newBatter(inn.battingTeam, playerId));
   if (inn.strikerId === null) inn.strikerId = playerId;
   else inn.nonStrikerId = playerId;
@@ -526,6 +610,12 @@ function applyDelivery(state: MatchState, d: DeliveryEvent, eventIndex: number):
   if (isLegalBall) inn.legalBalls += 1;
   inn.currentOverBowlerRuns += bowlerRuns;
 
+  // The current pair is always the last partnership: a delivery needs both batters present.
+  const partnership = inn.partnerships[inn.partnerships.length - 1];
+  partnership.runs += totalRuns;
+  if (isBallFaced) partnership.balls += 1;
+  partnership.batterRuns[partnership.batterIds[0] === strikerId ? 0 : 1] += batterRuns;
+
   // --- Wicket and batters' ends ---
   let atStrikerEnd: string | null = strikerId;
   let atNonStrikerEnd: string | null = nonStrikerId;
@@ -560,11 +650,25 @@ function applyDelivery(state: MatchState, d: DeliveryEvent, eventIndex: number):
     inn.batters.find((b) => b.playerId === playerOutId)!.wicket = wicket;
     if (creditedToBowler) bowler.wickets += 1;
     inn.fallOfWickets.push({ wicketNumber: inn.wickets, teamRuns: inn.runs, legalBalls: inn.legalBalls, playerOutId });
+    partnership.broken = true;
   } else if (d.runs % 2 === 1) {
     // Odd number of runs completed: the batters have changed ends. Ordinary boundaries have
     // d.runs === 0, so the batters stay at their original ends (Law 18.11.2).
     [atStrikerEnd, atNonStrikerEnd] = [atNonStrikerEnd, atStrikerEnd];
   }
+
+  // --- Over-by-over summary ---
+  let overSummary = inn.overs[inn.overs.length - 1];
+  if (!overSummary || overSummary.over !== over) {
+    overSummary = { over, bowlerId, runs: 0, wickets: 0, legalBalls: 0, totalRuns: 0, totalWickets: 0, complete: false };
+    inn.overs.push(overSummary);
+  }
+  overSummary.runs += totalRuns;
+  if (wicket) overSummary.wickets += 1;
+  if (isLegalBall) overSummary.legalBalls += 1;
+  overSummary.totalRuns = inn.runs;
+  overSummary.totalWickets = inn.wickets;
+  overSummary.complete = overSummary.legalBalls === BALLS_PER_OVER;
 
   // --- Free hit (ICC playing condition, optional) ---
   inn.freeHitNext =

@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { dismissalText, economy, formatOvers, playerName, scoreText, strikeRate } from '../../domain/format';
+import { dismissalText, economy, formatOvers, ordinal, playerName, roleSuffix, scoreText, strikeRate } from '../../domain/format';
 import { extrasTotal, type InningsState, type MatchState } from '../../domain/scoring';
 import { colors, font, radius, spacing } from '../../theme/theme';
 
@@ -44,6 +44,7 @@ export function InningsScorecard({ state, inn }: { state: MatchState; inn: Innin
             <View style={styles.wideBox}>
               <Text style={styles.name}>
                 {b.name}
+                {roleSuffix(inn.battingTeam, b.playerId)}
                 {b.playerId === inn.strikerId && !inn.completed ? ' *' : ''}
               </Text>
               <Text style={styles.how}>
@@ -65,7 +66,13 @@ export function InningsScorecard({ state, inn }: { state: MatchState; inn: Innin
       {didNotBat.length ? (
         <Text style={styles.line}>
           <Text style={styles.bold}>{inn.completed ? 'Did not bat: ' : 'Yet to bat: '}</Text>
-          {didNotBat.map((p) => p.name).join(', ')}
+          {didNotBat.map((p) => p.name + roleSuffix(inn.battingTeam, p.playerId)).join(', ')}
+        </Text>
+      ) : null}
+      {inn.battingTeam.substitutes?.length ? (
+        <Text style={styles.line}>
+          <Text style={styles.bold}>Substitutes: </Text>
+          {inn.battingTeam.substitutes.map((p) => p.name).join(', ')}
         </Text>
       ) : null}
       {inn.fallOfWickets.length ? (
@@ -89,7 +96,10 @@ export function InningsScorecard({ state, inn }: { state: MatchState; inn: Innin
         {inn.bowlers.map((b) => (
           <View key={b.playerId} style={styles.row}>
             <View style={styles.wideBox}>
-              <Text style={styles.name}>{b.name}</Text>
+              <Text style={styles.name}>
+                {b.name}
+                {roleSuffix(inn.bowlingTeam, b.playerId)}
+              </Text>
               {b.wideBalls || b.noBallBalls ? (
                 <Text style={styles.how}>
                   {b.wideBalls} wd, {b.noBallBalls} nb
@@ -104,6 +114,58 @@ export function InningsScorecard({ state, inn }: { state: MatchState; inn: Innin
           </View>
         ))}
       </View>
+
+      {inn.partnerships.length ? (
+        <View style={styles.table}>
+          <View style={[styles.row, styles.headRow]}>
+            <Cell wide bold>Partnerships</Cell>
+            <Cell bold>Runs</Cell>
+            <Cell bold>Balls</Cell>
+          </View>
+          {inn.partnerships.map((p) => (
+            <View key={p.number} style={styles.row}>
+              <View style={styles.wideBox}>
+                <Text style={styles.name}>
+                  {ordinal(p.number)} wkt{p.broken ? '' : ' (unbroken)'}
+                </Text>
+                <Text style={styles.how}>
+                  {playerName(state.setup, p.batterIds[0])} {p.batterRuns[0]}, {playerName(state.setup, p.batterIds[1])}{' '}
+                  {p.batterRuns[1]}
+                </Text>
+              </View>
+              <Cell bold>{p.runs}</Cell>
+              <Cell>{p.balls}</Cell>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {inn.overs.length ? (
+        <View style={styles.table}>
+          <View style={[styles.row, styles.headRow]}>
+            <Cell wide bold>Over by over</Cell>
+            <Cell bold>Runs</Cell>
+            <Cell bold>Wkts</Cell>
+            <Cell bold>Score</Cell>
+          </View>
+          {inn.overs.map((o) => (
+            <View key={o.over} style={styles.row}>
+              <View style={styles.wideBox}>
+                <Text style={styles.name}>
+                  Over {o.over + 1}
+                  {o.complete ? '' : ` (${o.legalBalls} ${o.legalBalls === 1 ? 'ball' : 'balls'})`}
+                </Text>
+                <Text style={styles.how}>{playerName(state.setup, o.bowlerId)}</Text>
+              </View>
+              <Cell bold>{o.runs}</Cell>
+              <Cell>{o.wickets}</Cell>
+              <Cell muted>{`${o.totalRuns}/${o.totalWickets}`}</Cell>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {inn.endReason === 'abandoned' ? <Text style={styles.line}>Innings ended when the match was abandoned.</Text> : null}
+      {inn.partnerships.length ? <Text style={styles.muted}>Partnership balls exclude wides.</Text> : null}
     </View>
   );
 }

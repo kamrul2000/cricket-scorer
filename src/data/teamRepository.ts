@@ -1,5 +1,5 @@
-import type { Team, TeamSummary, TeamWithRoster } from '../domain/people';
-import { validateName } from '../domain/people';
+import type { Team, TeamDetails, TeamSummary, TeamWithRoster } from '../domain/people';
+import { leadershipError, validateDescription, validateName } from '../domain/people';
 import type { Database, SqlExecutor } from './database';
 import { RepositoryError } from './RepositoryError';
 import type { RepositoryDeps } from './deps';
@@ -10,6 +10,10 @@ interface TeamRow {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  description: string;
+  logo_file: string | null;
+  captain_id: string | null;
+  vice_captain_id: string | null;
 }
 
 function toTeam(row: TeamRow): Team {
@@ -19,7 +23,22 @@ function toTeam(row: TeamRow): Team {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at,
+    description: row.description,
+    logoFile: row.logo_file,
+    captainId: row.captain_id,
+    viceCaptainId: row.vice_captain_id,
   };
+}
+
+const NO_DETAILS: TeamDetails = { description: '', logoFile: null, captainId: null, viceCaptainId: null };
+
+/** Checks the optional details against the final roster; returns them cleaned. */
+function checkDetails(details: TeamDetails, playerIds: string[]): TeamDetails {
+  const description = validateDescription(details.description);
+  if (!description.ok) throw new RepositoryError('INVALID_NAME', description.error);
+  const problem = leadershipError(playerIds, details.captainId, details.viceCaptainId);
+  if (problem) throw new RepositoryError('INVALID_ROSTER', problem);
+  return { ...details, description: description.value };
 }
 
 export function createTeamRepository(db: Database, deps: RepositoryDeps) {
@@ -109,24 +128,30 @@ export function createTeamRepository(db: Database, deps: RepositoryDeps) {
       return { ...toTeam(row), playerIds: await readRoster(db, id) };
     },
 
-    async create(rawName: string, playerIds: string[]): Promise<TeamWithRoster> {
+    async create(rawName: string, playerIds: string[], details: TeamDetails = NO_DETAILS): Promise<TeamWithRoster> {
       const name = validateName(rawName, 'Team');
       if (!name.ok) throw new RepositoryError('INVALID_NAME', name.error);
+      const d = checkDetails(details, playerIds);
       const id = deps.newId();
       const now = deps.now();
       await db.transaction(async (tx) => {
         await assertNameFree(tx, name.value, null);
         await tx.run(
-          'INSERT INTO teams (id, name, created_at, updated_at, archived_at) VALUES (?, ?, ?, ?, NULL)',
-          [id, name.value, now, now],
+          `INSERT INTO teams (id, name, created_at, updated_at, archived_at, description, logo_file, captain_id, vice_captain_id)
+           VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+          [id, name.value, now, now, d.description, d.logoFile, d.captainId, d.viceCaptainId],
         );
         await writeRoster(tx, id, playerIds);
       });
       return (await this.get(id))!;
     },
 
-    /** Renames the team and replaces its roster in one transaction. */
-    async update(id: string, rawName: string, playerIds: string[]): Promise<TeamWithRoster> {
+    /**
+     * Renames the team, replaces its roster and (when given) its details, in one transaction.
+     * Without `details`, the existing details are kept; a captain or vice-captain removed from
+     * the roster must be changed first.
+     */
+    async update(id: string, rawName: string, playerIds: string[], details?: TeamDetails): Promise<TeamWithRoster> {
       const name = validateName(rawName, 'Team');
       if (!name.ok) throw new RepositoryError('INVALID_NAME', name.error);
       await db.transaction(async (tx) => {
@@ -134,15 +159,22 @@ export function createTeamRepository(db: Database, deps: RepositoryDeps) {
         if (row.archived_at) {
           throw new RepositoryError('ARCHIVED', 'Restore this team before editing it.');
         }
+        const d = checkDetails(details ?? toTeam(row), Array.from(new Set(playerIds)));
         await assertNameFree(tx, name.value, id);
-        await tx.run('UPDATE teams SET name = ?, updated_at = ? WHERE id = ?', [
-          name.value,
-          deps.now(),
-          id,
-        ]);
+        await tx.run(
+          `UPDATE teams SET name = ?, description = ?, logo_file = ?, captain_id = ?, vice_captain_id = ?, updated_at = ?
+            WHERE id = ?`,
+          [name.value, d.description, d.logoFile, d.captainId, d.viceCaptainId, deps.now(), id],
+        );
         await writeRoster(tx, id, playerIds);
       });
       return (await this.get(id))!;
+    },
+
+    /** Logo file names currently used by any team (active or archived). */
+    async logoFilesInUse(): Promise<string[]> {
+      const rows = await db.all<{ logo_file: string }>('SELECT logo_file FROM teams WHERE logo_file IS NOT NULL');
+      return rows.map((r) => r.logo_file);
     },
 
     /** Archive instead of delete so that match records can keep pointing at the team. */

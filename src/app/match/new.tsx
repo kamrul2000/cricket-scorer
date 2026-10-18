@@ -33,6 +33,14 @@ interface TeamOption {
   name: string;
   /** Active players on the roster. */
   players: { playerId: string; name: string }[];
+  captainId: string | null;
+  viceCaptainId: string | null;
+}
+
+/** Captain/vice-captain choices for one lineup step. */
+interface Leaders {
+  captainId: string | null;
+  viceCaptainId: string | null;
 }
 
 function parseWhole(text: string): number | null {
@@ -55,7 +63,13 @@ export default function NewMatchScreen() {
       const roster = (full?.playerIds ?? [])
         .filter((id) => names.has(id))
         .map((id) => ({ playerId: id, name: names.get(id)! }));
-      options.push({ id: t.id, name: t.name, players: roster });
+      options.push({
+        id: t.id,
+        name: t.name,
+        players: roster,
+        captainId: full?.captainId ?? null,
+        viceCaptainId: full?.viceCaptainId ?? null,
+      });
     }
     return options;
   }, [teams, players]);
@@ -69,6 +83,10 @@ export default function NewMatchScreen() {
   const [maxOversText, setMaxOversText] = useState('');
   const [lineupA, setLineupA] = useState<string[]>([]);
   const [lineupB, setLineupB] = useState<string[]>([]);
+  const [subsA, setSubsA] = useState<string[]>([]);
+  const [subsB, setSubsB] = useState<string[]>([]);
+  const [leadersA, setLeadersA] = useState<Leaders>({ captainId: null, viceCaptainId: null });
+  const [leadersB, setLeadersB] = useState<Leaders>({ captainId: null, viceCaptainId: null });
   const [tossWinner, setTossWinner] = useState<string | null>(null);
   const [decision, setDecision] = useState<TossDecision | null>(null);
   const [openers, setOpeners] = useState<Openers>({ strikerId: null, nonStrikerId: null, bowlerId: null });
@@ -92,11 +110,16 @@ export default function NewMatchScreen() {
 
   const setup: MatchSetup | null = useMemo(() => {
     if (!teamA || !teamB || !tossWinner || !decision) return null;
-    const pick = (team: TeamOption, ids: string[]): TeamLineup => ({
-      teamId: team.id,
-      name: team.name,
-      players: ids.map((id) => team.players.find((p) => p.playerId === id)!).filter(Boolean),
-    });
+    const pick = (team: TeamOption, ids: string[], subIds: string[], leaders: Leaders): TeamLineup => {
+      const toPlayers = (list: string[]) => list.map((id) => team.players.find((p) => p.playerId === id)!).filter(Boolean);
+      const lineup: TeamLineup = { teamId: team.id, name: team.name, players: toPlayers(ids) };
+      const subs = toPlayers(subIds.filter((id) => !ids.includes(id)));
+      if (subs.length) lineup.substitutes = subs;
+      // Captain and vice-captain only count when they are in the playing lineup.
+      if (leaders.captainId && ids.includes(leaders.captainId)) lineup.captainId = leaders.captainId;
+      if (leaders.viceCaptainId && ids.includes(leaders.viceCaptainId)) lineup.viceCaptainId = leaders.viceCaptainId;
+      return lineup;
+    };
     return {
       rules: {
         oversPerInnings: parseWhole(oversText) ?? 0,
@@ -104,10 +127,10 @@ export default function NewMatchScreen() {
         freeHitAfterNoBall: freeHit,
         maxOversPerBowler: maxOversText.trim() === '' ? null : (parseWhole(maxOversText) ?? 0),
       },
-      teams: [pick(teamA, lineupA), pick(teamB, lineupB)],
+      teams: [pick(teamA, lineupA, subsA, leadersA), pick(teamB, lineupB, subsB, leadersB)],
       toss: { winnerTeamId: tossWinner, decision },
     };
-  }, [teamA, teamB, tossWinner, decision, oversText, playersPerSide, freeHit, maxOversText, lineupA, lineupB]);
+  }, [teamA, teamB, tossWinner, decision, oversText, playersPerSide, freeHit, maxOversText, lineupA, lineupB, subsA, subsB, leadersA, leadersB]);
 
   if (error && !data) return <ErrorView message={error} onRetry={reload} />;
   if (!data) return <LoadingView />;
@@ -165,8 +188,14 @@ export default function NewMatchScreen() {
     if (problem) return;
     if (step === 0) {
       // Drop lineup picks that no longer fit the chosen teams or size.
-      setLineupA((ids) => ids.filter((id) => teamA!.players.some((p) => p.playerId === id)).slice(0, playersPerSide));
-      setLineupB((ids) => ids.filter((id) => teamB!.players.some((p) => p.playerId === id)).slice(0, playersPerSide));
+      const fits = (team: TeamOption) => (id: string) => team.players.some((p) => p.playerId === id);
+      setLineupA((ids) => ids.filter(fits(teamA!)).slice(0, playersPerSide));
+      setLineupB((ids) => ids.filter(fits(teamB!)).slice(0, playersPerSide));
+      setSubsA((ids) => ids.filter(fits(teamA!)));
+      setSubsB((ids) => ids.filter(fits(teamB!)));
+      // Start from each team's own captain and vice-captain.
+      setLeadersA({ captainId: teamA!.captainId, viceCaptainId: teamA!.viceCaptainId });
+      setLeadersB({ captainId: teamB!.captainId, viceCaptainId: teamB!.viceCaptainId });
     }
     if (step === 3) setOpeners({ strikerId: null, nonStrikerId: null, bowlerId: null });
     setStep(step + 1);
@@ -199,29 +228,82 @@ export default function NewMatchScreen() {
   const toggleIn = (list: string[], setList: (l: string[]) => void, id: string) =>
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
-  const lineupStep = (team: TeamOption, list: string[], setList: (l: string[]) => void, otherList: string[], otherName: string) => (
-    <>
-      <Text style={styles.lead}>
-        Choose {playersPerSide} players for {team.name}. {list.length} of {playersPerSide} selected.
-      </Text>
-      {team.players.length === playersPerSide && list.length !== playersPerSide ? (
-        <Button title="Select all" variant="secondary" onPress={() => setList(team.players.map((p) => p.playerId).filter((id) => !otherList.includes(id)))} />
-      ) : null}
-      <PlayerPicker
-        multiple
-        players={team.players.map((p) => ({
-          ...p,
-          disabledReason: otherList.includes(p.playerId)
-            ? `Playing for ${otherName}`
-            : !list.includes(p.playerId) && list.length >= playersPerSide
-              ? 'Lineup is full'
-              : null,
-        }))}
-        selectedIds={list}
-        onToggle={(id) => toggleIn(list, setList, id)}
-      />
-    </>
-  );
+  interface LineupSide {
+    team: TeamOption;
+    list: string[];
+    setList: (l: string[]) => void;
+    subs: string[];
+    setSubs: (l: string[]) => void;
+    leaders: Leaders;
+    setLeaders: (l: Leaders) => void;
+  }
+
+  const lineupStep = (side: LineupSide, other: { name: string; list: string[]; subs: string[] }) => {
+    const { team, list, setList, subs, setSubs, leaders, setLeaders } = side;
+    const elsewhere = (id: string) =>
+      other.list.includes(id) ? `Playing for ${other.name}` : other.subs.includes(id) ? `Substitute for ${other.name}` : null;
+    const benchable = team.players.filter((p) => !list.includes(p.playerId));
+    const inLineup = team.players.filter((p) => list.includes(p.playerId));
+    const leaderChips = (otherId: string | null) => [
+      { value: '', label: 'None' },
+      ...inLineup.map((p) => ({ value: p.playerId, label: p.name, disabled: p.playerId === otherId })),
+    ];
+    return (
+      <>
+        <Text style={styles.lead}>
+          Choose {playersPerSide} players for {team.name}. {list.length} of {playersPerSide} selected.
+        </Text>
+        {team.players.length === playersPerSide && list.length !== playersPerSide ? (
+          <Button title="Select all" variant="secondary" onPress={() => setList(team.players.map((p) => p.playerId).filter((id) => !elsewhere(id)))} />
+        ) : null}
+        <PlayerPicker
+          multiple
+          players={team.players.map((p) => ({
+            ...p,
+            disabledReason:
+              elsewhere(p.playerId) ?? (!list.includes(p.playerId) && list.length >= playersPerSide ? 'Lineup is full' : null),
+          }))}
+          selectedIds={list}
+          onToggle={(id) => {
+            toggleIn(list, setList, id);
+            if (subs.includes(id)) setSubs(subs.filter((x) => x !== id)); // never both playing and substitute
+          }}
+        />
+
+        {inLineup.length ? (
+          <>
+            <Text style={styles.heading}>Captain</Text>
+            <Chips
+              options={leaderChips(leaders.viceCaptainId)}
+              value={leaders.captainId && list.includes(leaders.captainId) ? leaders.captainId : ''}
+              onChange={(v) => setLeaders({ ...leaders, captainId: v || null })}
+            />
+            <Text style={styles.heading}>Vice-captain</Text>
+            <Chips
+              options={leaderChips(leaders.captainId)}
+              value={leaders.viceCaptainId && list.includes(leaders.viceCaptainId) ? leaders.viceCaptainId : ''}
+              onChange={(v) => setLeaders({ ...leaders, viceCaptainId: v || null })}
+            />
+          </>
+        ) : null}
+
+        {list.length === playersPerSide && benchable.length ? (
+          <>
+            <Text style={styles.heading}>Substitutes (optional)</Text>
+            <Text style={styles.help}>
+              Substitutes are listed on the scorecard only. They cannot bat, bowl or be recorded as fielders in this version.
+            </Text>
+            <PlayerPicker
+              multiple
+              players={benchable.map((p) => ({ ...p, disabledReason: elsewhere(p.playerId) }))}
+              selectedIds={subs}
+              onToggle={(id) => toggleIn(subs, setSubs, id)}
+            />
+          </>
+        ) : null}
+      </>
+    );
+  };
 
   const battingIdx = setup ? firstBattingTeamIndex(setup) : 0;
 
@@ -274,8 +356,18 @@ export default function NewMatchScreen() {
           </>
         ) : null}
 
-        {step === 1 && teamA ? lineupStep(teamA, lineupA, setLineupA, lineupB, teamB?.name ?? '') : null}
-        {step === 2 && teamB ? lineupStep(teamB, lineupB, setLineupB, lineupA, teamA?.name ?? '') : null}
+        {step === 1 && teamA
+          ? lineupStep(
+              { team: teamA, list: lineupA, setList: setLineupA, subs: subsA, setSubs: setSubsA, leaders: leadersA, setLeaders: setLeadersA },
+              { name: teamB?.name ?? '', list: lineupB, subs: subsB },
+            )
+          : null}
+        {step === 2 && teamB
+          ? lineupStep(
+              { team: teamB, list: lineupB, setList: setLineupB, subs: subsB, setSubs: setSubsB, leaders: leadersB, setLeaders: setLeadersB },
+              { name: teamA?.name ?? '', list: lineupA, subs: subsA },
+            )
+          : null}
 
         {step === 3 && teamA && teamB ? (
           <>

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, font, MIN_TOUCH, radius, spacing } from '../theme/theme';
@@ -7,16 +8,19 @@ interface Props {
   subtitle?: string;
   /** Small label on the right, e.g. "Archived". */
   badge?: string;
+  /** Shown on the left, e.g. a team logo. */
+  leading?: ReactNode;
   onPress?: () => void;
 }
 
-export function ListRow({ title, subtitle, badge, onPress }: Props) {
+export function ListRow({ title, subtitle, badge, leading, onPress }: Props) {
   return (
     <Pressable
       accessibilityRole={onPress ? 'button' : undefined}
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
+      {leading}
       <View style={styles.texts}>
         <Text style={styles.title}>{title}</Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}

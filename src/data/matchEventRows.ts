@@ -112,6 +112,9 @@ export function eventToRow(seq: number, { event, inningsIndex, record }: EventTo
     case 'newBowler':
       row.player_id = event.playerId;
       break;
+    case 'swapBatters':
+    case 'abandon':
+      break; // the type is the whole event
     case 'delivery': {
       row.striker_id = event.strikerId;
       row.non_striker_id = event.nonStrikerId;
@@ -177,6 +180,9 @@ export function rowToEvent(row: EventRow): MatchEvent {
     case 'newBatter':
     case 'newBowler':
       return { type: row.type, playerId: need(row.player_id, 'the player', s) };
+    case 'swapBatters':
+    case 'abandon':
+      return { type: row.type };
     case 'delivery': {
       const strikerId = need(row.striker_id, 'the striker', s);
       const ballType = oneOf<BallType>(row.ball_type, ['fair', 'wide', 'noBall'], 'ball type', s);

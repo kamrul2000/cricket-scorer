@@ -3,8 +3,8 @@
 import { EVENT_COLUMNS, type EventRow } from './matchEventRows';
 import type { MatchPlayerRow, MatchRow } from './matchRepository';
 
-/** text = non-empty string; int = whole number; `?` = may also be null. */
-export type ColumnKind = 'text' | 'text?' | 'int' | 'int?';
+/** text = non-empty string; string = any string (may be empty); int = whole number; `?` = may also be null. */
+export type ColumnKind = 'text' | 'string' | 'text?' | 'int' | 'int?';
 
 export interface EntityRow {
   id: string;
@@ -12,6 +12,13 @@ export interface EntityRow {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+}
+
+export interface TeamRow extends EntityRow {
+  description: string;
+  logo_file: string | null;
+  captain_id: string | null;
+  vice_captain_id: string | null;
 }
 
 export interface TeamPlayerRow {
@@ -25,7 +32,7 @@ export type MatchEventBackupRow = EventRow & { match_id: string; created_at: str
 /** All app data, one array of rows per table. */
 export interface BackupData {
   players: EntityRow[];
-  teams: EntityRow[];
+  teams: TeamRow[];
   teamPlayers: TeamPlayerRow[];
   matches: MatchRow[];
   matchPlayers: MatchPlayerRow[];
@@ -74,7 +81,11 @@ function eventColumnKind(c: string): ColumnKind {
 
 export const BACKUP_TABLES: Record<BackupTableKey, TableSpec> = {
   players: { table: 'players', columns: ENTITY_COLUMNS, orderBy: 'created_at, id' },
-  teams: { table: 'teams', columns: ENTITY_COLUMNS, orderBy: 'created_at, id' },
+  teams: {
+    table: 'teams',
+    columns: { ...ENTITY_COLUMNS, description: 'string', logo_file: 'text?', captain_id: 'text?', vice_captain_id: 'text?' },
+    orderBy: 'created_at, id',
+  },
   teamPlayers: {
     table: 'team_players',
     columns: { team_id: 'text', player_id: 'text', added_at: 'text' },
@@ -104,8 +115,16 @@ export const BACKUP_TABLES: Record<BackupTableKey, TableSpec> = {
   },
   matchPlayers: {
     table: 'match_players',
-    columns: { match_id: 'text', team_id: 'text', player_id: 'text', lineup_order: 'int', player_name: 'text' },
-    orderBy: 'match_id, team_id, lineup_order',
+    columns: {
+      match_id: 'text',
+      team_id: 'text',
+      player_id: 'text',
+      lineup_order: 'int',
+      player_name: 'text',
+      is_substitute: 'int',
+      role: 'text?',
+    },
+    orderBy: 'match_id, team_id, is_substitute, lineup_order',
   },
   matchEvents: {
     table: 'match_events',

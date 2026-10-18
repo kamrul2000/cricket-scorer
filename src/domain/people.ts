@@ -9,12 +9,39 @@ export interface Player {
   archivedAt: string | null;
 }
 
-export interface Team {
+export interface TeamDetails {
+  description: string;
+  /** File name of the logo in the app's private logo folder, or null. */
+  logoFile: string | null;
+  captainId: string | null;
+  viceCaptainId: string | null;
+}
+
+export interface Team extends TeamDetails {
   id: string;
   name: string;
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
+}
+
+export const DESCRIPTION_MAX_LENGTH = 300;
+
+/** Trims the description and checks its length. Empty is allowed. */
+export function validateDescription(raw: string): NameResult {
+  const value = raw.trim();
+  if (value.length > DESCRIPTION_MAX_LENGTH) {
+    return { ok: false, error: `The description must be ${DESCRIPTION_MAX_LENGTH} characters or fewer.` };
+  }
+  return { ok: true, value };
+}
+
+/** Captain and vice-captain must be on the roster and must be different people. */
+export function leadershipError(playerIds: readonly string[], captainId: string | null, viceCaptainId: string | null): string | null {
+  if (captainId && !playerIds.includes(captainId)) return 'The captain must be on the team roster.';
+  if (viceCaptainId && !playerIds.includes(viceCaptainId)) return 'The vice-captain must be on the team roster.';
+  if (captainId && captainId === viceCaptainId) return 'The captain and vice-captain must be different players.';
+  return null;
 }
 
 export interface TeamSummary extends Team {

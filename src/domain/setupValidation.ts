@@ -62,11 +62,17 @@ export function validateMatchSetup(setup: MatchSetup): string[] {
     if (team.players.length !== size) {
       errors.push(`${team.name} must have exactly ${size} players in the lineup (has ${team.players.length}).`);
     }
-    for (const p of team.players) {
+    for (const p of [...team.players, ...(team.substitutes ?? [])]) {
       if (seen.has(p.playerId)) {
-        errors.push(`${p.name} is selected more than once. A player can only play once per match.`);
+        errors.push(`${p.name} is selected more than once. A player can only be in one lineup, once, per match.`);
       }
       seen.add(p.playerId);
+    }
+    const inLineup = (id: string | null | undefined) => !id || team.players.some((p) => p.playerId === id);
+    if (!inLineup(team.captainId) || !inLineup(team.viceCaptainId)) {
+      errors.push(`The ${team.name} captain and vice-captain must be in the playing lineup.`);
+    } else if (team.captainId && team.captainId === team.viceCaptainId) {
+      errors.push(`The ${team.name} captain and vice-captain must be different players.`);
     }
   }
 

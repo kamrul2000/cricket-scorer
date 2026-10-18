@@ -87,6 +87,25 @@ export function createMatchService(matches: MatchRepository) {
       return { ...match, events, state };
     },
 
+    /**
+     * Every match the player played in, replayed by the engine. A match whose history cannot be
+     * replayed is skipped and counted, so one damaged match does not hide a whole career.
+     */
+    async loadMatchesForPlayer(playerId: string): Promise<{ matches: LoadedMatch[]; skipped: number }> {
+      const matchesFound: LoadedMatch[] = [];
+      let skipped = 0;
+      for (const id of await matches.idsForPlayer(playerId)) {
+        try {
+          const stored = await matches.load(id);
+          if (stored) matchesFound.push(toLoaded(stored));
+        } catch (e) {
+          if (e instanceof RepositoryError && e.code === 'DAMAGED') skipped += 1;
+          else throw e;
+        }
+      }
+      return { matches: matchesFound, skipped };
+    },
+
     deleteMatch(id: string): Promise<void> {
       return matches.delete(id);
     },

@@ -6,6 +6,7 @@ import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
 import { ErrorView, LoadingView } from '../components/StateViews';
+import { deviceLogoFiles } from '../files/logoFiles';
 import { createBackupService, type BackupService } from '../services/backupService';
 import { createMatchService, type MatchService } from '../services/matchService';
 import { errorMessage } from '../utils/errors';
@@ -52,6 +53,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         const backupService = createBackupService(repos.backups, {
           appVersion: Constants.expoConfig?.version ?? 'unknown',
           now: () => new Date(),
+          logos: deviceLogoFiles,
         });
         if (!cancelled) setState({ status: 'ready', data: { repos, matchService, backupService, schemaVersion } });
       } catch (e) {

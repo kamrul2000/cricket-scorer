@@ -1,7 +1,7 @@
 // Stores matches: the setup snapshot plus the ordered event history.
 // This layer does not know cricket rules; the match service checks events with the scoring
 // engine before calling `appendEvent`.
-import type { MatchEvent, MatchSetup, TossDecision } from '../domain/match';
+import type { LineupPlayer, MatchEvent, MatchSetup, TeamLineup, TossDecision } from '../domain/match';
 import type { Database } from './database';
 import type { RepositoryDeps } from './deps';
 import {
@@ -65,8 +65,11 @@ export interface MatchPlayerRow {
   match_id: string;
   team_id: string;
   player_id: string;
+  /** Order within the team's playing lineup, or within its substitutes. */
   lineup_order: number;
   player_name: string;
+  is_substitute: number;
+  role: 'captain' | 'viceCaptain' | null;
 }
 
 /**
@@ -86,8 +89,19 @@ export function storedMatchFromRows(m: MatchRow, players: readonly MatchPlayerRo
     throw e;
   }
 
-  const lineup = (teamId: string) =>
-    players.filter((p) => p.team_id === teamId).map((p) => ({ playerId: p.player_id, name: p.player_name }));
+  // Optional parts (substitutes, captain, vice-captain) are only present when recorded.
+  const lineup = (teamId: string, name: string): TeamLineup => {
+    const rows = players.filter((p) => p.team_id === teamId);
+    const toPlayer = (p: MatchPlayerRow) => ({ playerId: p.player_id, name: p.player_name });
+    const team: TeamLineup = { teamId, name, players: rows.filter((p) => !p.is_substitute).map(toPlayer) };
+    const subs = rows.filter((p) => p.is_substitute).map(toPlayer);
+    if (subs.length) team.substitutes = subs;
+    const captain = rows.find((p) => p.role === 'captain');
+    const vice = rows.find((p) => p.role === 'viceCaptain');
+    if (captain) team.captainId = captain.player_id;
+    if (vice) team.viceCaptainId = vice.player_id;
+    return team;
+  };
   const setup: MatchSetup = {
     rules: {
       oversPerInnings: m.overs_per_innings,
@@ -95,10 +109,7 @@ export function storedMatchFromRows(m: MatchRow, players: readonly MatchPlayerRo
       freeHitAfterNoBall: m.free_hit_after_no_ball === 1,
       maxOversPerBowler: m.max_overs_per_bowler,
     },
-    teams: [
-      { teamId: m.team_a_id, name: m.team_a_name, players: lineup(m.team_a_id) },
-      { teamId: m.team_b_id, name: m.team_b_name, players: lineup(m.team_b_id) },
-    ],
+    teams: [lineup(m.team_a_id, m.team_a_name), lineup(m.team_b_id, m.team_b_name)],
     toss: { winnerTeamId: m.toss_winner_team_id, decision: m.toss_decision },
   };
   return { id: m.id, status: m.status, createdAt: m.created_at, updatedAt: m.updated_at, setup, events };
@@ -148,12 +159,21 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
           ],
         );
         for (const team of setup.teams) {
-          for (let i = 0; i < team.players.length; i++) {
-            const p = team.players[i];
-            await tx.run(
-              'INSERT INTO match_players (match_id, team_id, player_id, lineup_order, player_name) VALUES (?, ?, ?, ?, ?)',
-              [id, team.teamId, p.playerId, i, p.name],
-            );
+          const role = (playerId: string) =>
+            playerId === team.captainId ? 'captain' : playerId === team.viceCaptainId ? 'viceCaptain' : null;
+          const groups: [LineupPlayer[], number][] = [
+            [team.players, 0],
+            [team.substitutes ?? [], 1],
+          ];
+          for (const [list, isSubstitute] of groups) {
+            for (let i = 0; i < list.length; i++) {
+              const p = list[i];
+              await tx.run(
+                `INSERT INTO match_players (match_id, team_id, player_id, lineup_order, player_name, is_substitute, role)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [id, team.teamId, p.playerId, i, p.name, isSubstitute, isSubstitute ? null : role(p.playerId)],
+              );
+            }
           }
         }
         await tx.run(INSERT_EVENT_SQL, [id, now, ...rowValues(eventToRow(0, first))]);
@@ -180,7 +200,7 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
       const m = await db.first<MatchRow>('SELECT * FROM matches WHERE id = ?', [id]);
       if (!m) return null;
       const players = await db.all<MatchPlayerRow>(
-        'SELECT * FROM match_players WHERE match_id = ? ORDER BY lineup_order',
+        'SELECT * FROM match_players WHERE match_id = ? ORDER BY is_substitute, lineup_order',
         [id],
       );
       const rows = await db.all<EventRow>(
@@ -251,6 +271,17 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
     async delete(matchId: string): Promise<void> {
       const r = await db.run('DELETE FROM matches WHERE id = ?', [matchId]);
       if (r.changes === 0) throw new RepositoryError('NOT_FOUND', 'This match no longer exists.');
+    },
+
+    /** IDs of matches where the player is in a lineup snapshot, oldest first. */
+    async idsForPlayer(playerId: string): Promise<string[]> {
+      const rows = await db.all<{ id: string }>(
+        `SELECT m.id FROM matches m
+          WHERE EXISTS (SELECT 1 FROM match_players mp WHERE mp.match_id = m.id AND mp.player_id = ?)
+          ORDER BY m.created_at, m.id`,
+        [playerId],
+      );
+      return rows.map((r) => r.id);
     },
 
     /** Number of matches a team played in (shown when archiving). */

@@ -5,10 +5,14 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../../components/Button';
+import { Chips } from '../../components/Chips';
 import { ErrorBanner, ErrorView, LoadingView } from '../../components/StateViews';
+import { TeamLogo } from '../../components/TeamLogo';
 import { TextField } from '../../components/TextField';
 import { useRepositories } from '../../data/AppDataProvider';
-import { validateName } from '../../domain/people';
+import { DESCRIPTION_MAX_LENGTH, leadershipError, validateDescription, validateName } from '../../domain/people';
+import { deviceLogoFiles, pickAndStoreLogo } from '../../files/logoFiles';
+import { removeUnusedLogos } from '../../services/backupService';
 import { useFocusLoad } from '../../hooks/useFocusLoad';
 import { useGuardedAction } from '../../hooks/useGuardedAction';
 import { colors, font, MIN_TOUCH, radius, spacing } from '../../theme/theme';
@@ -36,6 +40,10 @@ export default function TeamScreen() {
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [initialised, setInitialised] = useState(false);
+  const [description, setDescription] = useState('');
+  const [logoFile, setLogoFile] = useState<string | null>(null);
+  const [captainId, setCaptainId] = useState<string | null>(null);
+  const [viceCaptainId, setViceCaptainId] = useState<string | null>(null);
 
   // Fill the form once when data first arrives, so later refreshes never wipe typing.
   // (Adjusting state during render, as React recommends, instead of an effect.)
@@ -43,6 +51,10 @@ export default function TeamScreen() {
     if (data.team) {
       setName(data.team.name);
       setSelected(new Set(data.team.playerIds));
+      setDescription(data.team.description);
+      setLogoFile(data.team.logoFile);
+      setCaptainId(data.team.captainId);
+      setViceCaptainId(data.team.viceCaptainId);
     }
     setInitialised(true);
   }
@@ -59,6 +71,11 @@ export default function TeamScreen() {
 
   const toggle = (playerId: string) => {
     if (archived) return;
+    if (selected.has(playerId)) {
+      // A player leaving the squad cannot stay captain or vice-captain.
+      if (captainId === playerId) setCaptainId(null);
+      if (viceCaptainId === playerId) setViceCaptainId(null);
+    }
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(playerId)) next.delete(playerId);
@@ -67,6 +84,17 @@ export default function TeamScreen() {
     });
   };
 
+  const chooseLogo = () =>
+    run(async () => {
+      try {
+        const name = await pickAndStoreLogo();
+        if (name) setLogoFile(name);
+        setActionError(null);
+      } catch (e) {
+        setActionError(errorMessage(e));
+      }
+    });
+
   const save = () =>
     run(async () => {
       const check = validateName(name, 'Team');
@@ -74,15 +102,30 @@ export default function TeamScreen() {
         setFieldError(check.error);
         return;
       }
+      const desc = validateDescription(description);
+      const ids = [...selected];
+      const problem = desc.ok ? leadershipError(ids, captainId, viceCaptainId) : desc.error;
+      if (problem || !desc.ok) {
+        setActionError(problem);
+        return;
+      }
       try {
-        const ids = [...selected];
-        if (isNew) await teams.create(check.value, ids);
-        else await teams.update(id, check.value, ids);
+        const details = { description: desc.value, logoFile, captainId, viceCaptainId };
+        if (isNew) await teams.create(check.value, ids, details);
+        else await teams.update(id, check.value, ids, details);
+        // Tidy up logo images that were replaced or chosen and then not used.
+        await removeUnusedLogos(deviceLogoFiles, await teams.logoFilesInUse()).catch(() => undefined);
         router.back();
       } catch (e) {
         setActionError(errorMessage(e)); // form stays filled so the user can retry
       }
     });
+
+  const squad = visible.filter((p) => selected.has(p.id));
+  const leaderOptions = (other: string | null) => [
+    { value: '', label: 'None' },
+    ...squad.map((p) => ({ value: p.id, label: p.name, disabled: p.id === other })),
+  ];
 
   const changeArchived = (next: boolean) =>
     run(async () => {
@@ -130,6 +173,28 @@ export default function TeamScreen() {
         error={fieldError}
       />
 
+      <View style={styles.logoRow}>
+        <TeamLogo name={name || 'Team'} logoFile={logoFile} size={72} />
+        <View style={styles.logoButtons}>
+          <Button title={logoFile ? 'Change logo' : 'Choose logo'} variant="secondary" onPress={() => void chooseLogo()} disabled={archived || pending} />
+          {logoFile ? (
+            <Button title="Remove logo" variant="secondary" onPress={() => setLogoFile(null)} disabled={archived || pending} />
+          ) : null}
+        </View>
+      </View>
+      <Text style={styles.help}>The image is copied into the app (max 512 px), so it stays available offline.</Text>
+
+      <TextField
+        label="Description (optional)"
+        value={description}
+        onChangeText={setDescription}
+        editable={!archived}
+        maxLength={DESCRIPTION_MAX_LENGTH}
+        multiline
+        style={styles.multiline}
+        placeholder="e.g. Saturday club side, home ground Eastfield"
+      />
+
       <View style={styles.rosterHeader}>
         <Text style={styles.heading}>Roster</Text>
         <Text style={styles.count}>{selected.size} selected</Text>
@@ -164,6 +229,24 @@ export default function TeamScreen() {
           })}
         </View>
       )}
+
+      {squad.length ? (
+        <>
+          <Text style={styles.heading}>Captain</Text>
+          <Chips
+            options={leaderOptions(viceCaptainId)}
+            value={captainId ?? ''}
+            onChange={(v) => !archived && setCaptainId(v || null)}
+          />
+          <Text style={styles.heading}>Vice-captain</Text>
+          <Chips
+            options={leaderOptions(captainId)}
+            value={viceCaptainId ?? ''}
+            onChange={(v) => !archived && setViceCaptainId(v || null)}
+          />
+          <Text style={styles.help}>Used as the default for each new match; you can change them in match setup.</Text>
+        </>
+      ) : null}
 
       {archived ? (
         <Button title="Restore team" onPress={() => void changeArchived(false)} loading={pending} />
@@ -212,4 +295,8 @@ const styles = StyleSheet.create({
   tick: { color: colors.onPrimary, fontWeight: '800', fontSize: font.body },
   playerName: { flex: 1, fontSize: font.large, color: colors.text },
   tag: { fontSize: font.small, fontWeight: '700', color: colors.textMuted },
+  logoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  logoButtons: { flex: 1, gap: spacing.sm },
+  help: { fontSize: font.small, color: colors.textMuted },
+  multiline: { minHeight: 88, textAlignVertical: 'top', paddingTop: spacing.sm },
 });

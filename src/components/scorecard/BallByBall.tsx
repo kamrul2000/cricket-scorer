@@ -1,4 +1,5 @@
-// Delivery history for one innings, grouped by over (latest over first).
+// Delivery history for one innings, grouped by over (latest over first). Over totals come from
+// the scoring engine's over-by-over summary.
 import { StyleSheet, Text, View } from 'react-native';
 
 import { playerName } from '../../domain/format';
@@ -7,38 +8,44 @@ import { colors, font, radius, spacing } from '../../theme/theme';
 import { BallChip } from '../scoring/OverStrip';
 
 export function BallByBall({ state, inn }: { state: MatchState; inn: InningsState }) {
-  const overs = new Map<number, DeliveryRecord[]>();
-  for (const d of inn.deliveries) {
-    const list = overs.get(d.over) ?? [];
-    list.push(d);
-    overs.set(d.over, list);
-  }
-  const entries = [...overs.entries()].sort((a, b) => b[0] - a[0]);
-  if (entries.length === 0) return <Text style={styles.empty}>No deliveries yet.</Text>;
+  const balls = new Map<number, DeliveryRecord[]>();
+  for (const d of inn.deliveries) balls.set(d.over, [...(balls.get(d.over) ?? []), d]);
+  // Each scorer swap is shown under the over of the last ball bowled before it.
+  const swapOver = (eventIndex: number) => {
+    const before = inn.deliveries.filter((d) => d.eventIndex < eventIndex);
+    return before.length ? before[before.length - 1].over : 0;
+  };
+  const overs = [...inn.overs].reverse();
+  if (overs.length === 0) return <Text style={styles.empty}>No deliveries yet.</Text>;
 
   return (
     <View style={styles.wrap}>
-      {entries.map(([over, balls]) => {
-        const runs = balls.reduce((s, d) => s + d.totalRuns, 0);
-        const wickets = balls.filter((d) => d.wicket).length;
+      {overs.map((o) => {
+        const swaps = inn.strikeSwaps.filter((s) => swapOver(s.eventIndex) === o.over);
+        const list = balls.get(o.over) ?? [];
         return (
-          <View key={over} style={styles.over}>
+          <View key={o.over} style={styles.over}>
             <Text style={styles.overTitle}>
-              Over {over + 1} · {playerName(state.setup, balls[0].bowlerId)} · {runs} {runs === 1 ? 'run' : 'runs'}
-              {wickets ? `, ${wickets} wkt` : ''}
+              Over {o.over + 1} · {playerName(state.setup, o.bowlerId)} · {o.runs} {o.runs === 1 ? 'run' : 'runs'}
+              {o.wickets ? `, ${o.wickets} wkt` : ''} · {o.totalRuns}/{o.totalWickets}
             </Text>
             <View style={styles.balls}>
-              {balls.map((d) => (
+              {list.map((d) => (
                 <BallChip key={d.eventIndex} d={d} />
               ))}
             </View>
-            {balls
+            {list
               .filter((d) => d.wicket)
               .map((d) => (
                 <Text key={d.eventIndex} style={styles.note}>
                   Wicket: {playerName(state.setup, d.wicket!.playerOutId)}
                 </Text>
               ))}
+            {swaps.map((s) => (
+              <Text key={s.eventIndex} style={styles.correction}>
+                Batters swapped by the scorer (correction)
+              </Text>
+            ))}
           </View>
         );
       })}
@@ -53,4 +60,5 @@ const styles = StyleSheet.create({
   overTitle: { fontSize: font.body, fontWeight: '700', color: colors.text },
   balls: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   note: { fontSize: font.small, color: colors.danger, fontWeight: '600' },
+  correction: { fontSize: font.small, color: colors.textMuted, fontStyle: 'italic' },
 });

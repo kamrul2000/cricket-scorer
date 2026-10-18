@@ -38,11 +38,17 @@ export function CreasePanel({ inn }: { inn: InningsState }) {
   const bowler = inn.bowlerId ? inn.bowlers.find((b) => b.playerId === inn.bowlerId) : null;
   const lastBowler = inn.previousOverBowlerId ? inn.bowlers.find((b) => b.playerId === inn.previousOverBowlerId) : null;
   const shown = bowler ?? null;
+  const partnership = inn.partnerships[inn.partnerships.length - 1];
 
   return (
     <View style={styles.card}>
       {batter(inn.strikerId, true)}
       {batter(inn.nonStrikerId, false)}
+      {partnership && !partnership.broken ? (
+        <Text style={styles.partnership}>
+          Partnership {partnership.runs} ({partnership.balls} {partnership.balls === 1 ? 'ball' : 'balls'})
+        </Text>
+      ) : null}
       <View style={styles.divider} />
       {shown ? (
         <View style={styles.bowlerRow} accessibilityLabel={`Bowling: ${shown.name}`}>
@@ -77,6 +83,7 @@ const styles = StyleSheet.create({
   boundaries: { fontSize: font.small, color: colors.textMuted, width: 64, textAlign: 'right' },
   waiting: { fontSize: font.body, color: colors.textMuted, fontStyle: 'italic', padding: spacing.sm },
   divider: { height: 1, backgroundColor: colors.border },
+  partnership: { fontSize: font.small, color: colors.textMuted, fontWeight: '700', paddingHorizontal: spacing.sm },
   bowlerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm },
   bowlerLabel: { fontSize: font.small, fontWeight: '800', color: colors.primary },
   bowlerName: { flex: 1, fontSize: font.large, fontWeight: '700', color: colors.text },

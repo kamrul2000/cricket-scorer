@@ -1,17 +1,19 @@
 // Backup export, validation and restore against a real SQLite engine (node:sqlite).
 import {
   BACKUP_FORMAT,
+  BACKUP_FORMAT_VERSION,
   backupFileName,
   MAX_BACKUP_CHARS,
   parseBackup,
 } from '../src/backup/backupFormat';
-import { migrate } from '../src/data/migrations';
+import { LATEST_SCHEMA_VERSION, migrate } from '../src/data/migrations';
 import { createRepositories } from '../src/data/repositories';
 import type { MatchEvent } from '../src/domain/match';
 import { createBackupService } from '../src/services/backupService';
 import { createMatchService, faultInjection, type LoadedMatch } from '../src/services/matchService';
 import { createTestDatabase, testDeps } from './helpers/testDatabase';
 import { TestMatch } from './helpers/matchBuilder';
+import { memoryLogoFiles } from './helpers/memoryLogoFiles';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { addReleaseSigning } = require('../plugins/withReleaseSigning');
@@ -21,11 +23,13 @@ async function emptyApp() {
   await migrate(db);
   const repos = createRepositories(db, testDeps());
   const matches = createMatchService(repos.matches);
+  const logos = memoryLogoFiles();
   const backups = createBackupService(repos.backups, {
     appVersion: '1.0.0',
     now: () => new Date(Date.UTC(2026, 9, 18, 15, 30)),
+    logos,
   });
-  return { db, repos, matches, backups };
+  return { db, repos, matches, backups, logos };
 }
 
 function delivery(m: LoadedMatch, input: Parameters<TestMatch['deliveryEvent']>[0] = {}): MatchEvent {
@@ -93,8 +97,8 @@ describe('backup export', () => {
     const file = JSON.parse(backup.json);
     expect(file).toMatchObject({
       format: BACKUP_FORMAT,
-      formatVersion: 1,
-      schemaVersion: 2,
+      formatVersion: 2,
+      schemaVersion: LATEST_SCHEMA_VERSION,
       appVersion: '1.0.0',
       exportedAt: '2026-10-18T15:30:00.000Z',
     });
@@ -198,8 +202,8 @@ describe('invalid backups are rejected before anything is written', () => {
   type Tamper = (file: any) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
   const cases: [string, Tamper, RegExp][] = [
     ['an unknown format marker', (f) => (f.format = 'something-else'), /not a Local Cricket Scorer backup/],
-    ['a newer backup format', (f) => (f.formatVersion = 2), /newer version of the app/],
-    ['a newer database schema', (f) => (f.schemaVersion = 3), /newer version of the app/],
+    ['a newer backup format', (f) => (f.formatVersion = BACKUP_FORMAT_VERSION + 1), /newer version of the app/],
+    ['a newer database schema', (f) => (f.schemaVersion = LATEST_SCHEMA_VERSION + 1), /newer version of the app/],
     ['an older database schema', (f) => (f.schemaVersion = 1), /not supported/],
     ['a missing export date', (f) => delete f.exportedAt, /export details/],
     ['a missing table', (f) => delete f.data.teams, /missing the teams table/],

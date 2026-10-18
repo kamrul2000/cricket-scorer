@@ -1,5 +1,5 @@
 // Display helpers. Screens use these instead of formatting cricket values themselves.
-import { BALLS_PER_OVER, type MatchEvent, type MatchSetup } from './match';
+import { BALLS_PER_OVER, type MatchEvent, type MatchSetup, type TeamLineup } from './match';
 import {
   currentInnings,
   type DeliveryRecord,
@@ -66,6 +66,8 @@ export function resultText(setup: MatchSetup, result: MatchResult): string {
   switch (result.type) {
     case 'tie':
       return 'Match tied';
+    case 'noResult':
+      return 'No result (match abandoned)';
     case 'winByRuns':
       return `${teamName(setup, result.winnerTeamId)} won by ${plural(result.runs, 'run')}`;
     case 'winByWickets':
@@ -121,6 +123,28 @@ export function economy(runsConceded: number, legalBalls: number): string {
   return formatRate(runRate(runsConceded, legalBalls));
 }
 
+/**
+ * Average = runs per dismissal (batting: runs / times out; bowling: runs conceded / wickets).
+ * "-" when there is no dismissal yet, because the average is undefined, not zero.
+ */
+export function formatAverage(runs: number, dismissals: number): string {
+  return dismissals === 0 ? '-' : (runs / dismissals).toFixed(2);
+}
+
+/** " (c)" for the captain, " (vc)" for the vice-captain, "" otherwise. */
+export function roleSuffix(team: TeamLineup, playerId: string): string {
+  if (team.captainId === playerId) return ' (c)';
+  if (team.viceCaptainId === playerId) return ' (vc)';
+  return '';
+}
+
+/** 1 -> "1st", 2 -> "2nd", 11 -> "11th", 22 -> "22nd". */
+export function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
+}
+
 /** One-line status for the match list. */
 export function matchSummary(state: MatchState): string {
   if (state.result) return resultText(state.setup, state.result);
@@ -144,6 +168,10 @@ export function describeLastEvent(state: MatchState, events: readonly MatchEvent
       return `${name(event.playerId)} chosen as the new batter`;
     case 'newBowler':
       return `${name(event.playerId)} chosen to bowl the next over`;
+    case 'swapBatters':
+      return 'Batters swapped (scorer correction)';
+    case 'abandon':
+      return 'Match abandoned (no result)';
     case 'delivery': {
       const index = events.length - 1;
       const record = state.innings.flatMap((i) => i.deliveries).find((d) => d.eventIndex === index);

@@ -35,7 +35,16 @@ export interface LineupPlayer {
 export interface TeamLineup {
   teamId: string;
   name: string;
+  /** The playing lineup: the only players who can bat, bowl or field in the scoring. */
   players: LineupPlayer[];
+  /**
+   * Named substitutes (optional). They are listed on the scorecard but cannot bat, bowl or be
+   * recorded as fielders: substitute and replacement rules are not supported in this version.
+   */
+  substitutes?: LineupPlayer[];
+  /** Captain and vice-captain for this match (optional), from the playing lineup. */
+  captainId?: string | null;
+  viceCaptainId?: string | null;
 }
 
 export type TossDecision = 'bat' | 'bowl';
@@ -123,4 +132,24 @@ export interface NewBowlerEvent {
   playerId: string;
 }
 
-export type MatchEvent = InningsStartEvent | DeliveryEvent | NewBatterEvent | NewBowlerEvent;
+/**
+ * Scorer correction: the striker and non-striker change places without a delivery (for
+ * example after the scorer noticed that the wrong batter was shown on strike). Recorded as an
+ * event so the correction is visible in the history and can be undone.
+ */
+export interface SwapBattersEvent {
+  type: 'swapBatters';
+}
+
+/** The match is abandoned (rain, bad light, ...) and ends with no result. */
+export interface AbandonEvent {
+  type: 'abandon';
+}
+
+export type MatchEvent =
+  | InningsStartEvent
+  | DeliveryEvent
+  | NewBatterEvent
+  | NewBowlerEvent
+  | SwapBattersEvent
+  | AbandonEvent;

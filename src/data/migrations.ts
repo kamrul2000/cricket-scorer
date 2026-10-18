@@ -123,6 +123,63 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    description: 'match events: swap batters (scorer correction) and abandon (no result)',
+    // SQLite cannot change a CHECK constraint in place, so the table is rebuilt with the new
+    // allowed types and every existing row is copied across unchanged.
+    sql: `
+      CREATE TABLE match_events_v3 (
+        match_id        TEXT NOT NULL REFERENCES matches (id) ON DELETE CASCADE,
+        seq             INTEGER NOT NULL CHECK (seq >= 0),
+        type            TEXT NOT NULL CHECK (type IN ('inningsStart', 'delivery', 'newBatter', 'newBowler', 'swapBatters', 'abandon')),
+        innings_index   INTEGER NOT NULL CHECK (innings_index IN (0, 1)),
+        striker_id      TEXT,
+        non_striker_id  TEXT,
+        bowler_id       TEXT,
+        player_id       TEXT,
+        ball_type       TEXT CHECK (ball_type IN ('fair', 'wide', 'noBall')),
+        runs_from       TEXT CHECK (runs_from IN ('bat', 'byes', 'legByes')),
+        runs_completed  INTEGER CHECK (runs_completed >= 0),
+        boundary        TEXT CHECK (boundary IN ('none', 'four', 'six', 'overthrowFour')),
+        dismissal_kind  TEXT CHECK (dismissal_kind IN ('bowled', 'caught', 'lbw', 'stumped', 'hitWicket', 'runOut')),
+        dismissed_player_id TEXT,
+        run_out_end     TEXT CHECK (run_out_end IN ('striker', 'nonStriker')),
+        fielder_id      TEXT,
+        batter_runs     INTEGER,
+        extras_wides    INTEGER,
+        extras_no_balls INTEGER,
+        extras_byes     INTEGER,
+        extras_leg_byes INTEGER,
+        total_runs      INTEGER,
+        bowler_runs     INTEGER,
+        is_legal_ball   INTEGER CHECK (is_legal_ball IN (0, 1)),
+        is_ball_faced   INTEGER CHECK (is_ball_faced IN (0, 1)),
+        is_free_hit     INTEGER CHECK (is_free_hit IN (0, 1)),
+        wicket_credited_to_bowler INTEGER CHECK (wicket_credited_to_bowler IN (0, 1)),
+        created_at      TEXT NOT NULL,
+        PRIMARY KEY (match_id, seq)
+      );
+      INSERT INTO match_events_v3 SELECT * FROM match_events;
+      DROP TABLE match_events;
+      ALTER TABLE match_events_v3 RENAME TO match_events;
+    `,
+  },
+  {
+    version: 4,
+    description: 'team details (description, logo, captain, vice-captain) and match substitutes and roles',
+    sql: `
+      ALTER TABLE teams ADD COLUMN description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 300);
+      -- File name of the logo inside the app's private "logos" folder, or NULL for none.
+      ALTER TABLE teams ADD COLUMN logo_file TEXT;
+      ALTER TABLE teams ADD COLUMN captain_id TEXT REFERENCES players (id) ON DELETE RESTRICT;
+      ALTER TABLE teams ADD COLUMN vice_captain_id TEXT REFERENCES players (id) ON DELETE RESTRICT;
+
+      -- Substitutes are named in the match snapshot but cannot bat, bowl or field in the scoring.
+      ALTER TABLE match_players ADD COLUMN is_substitute INTEGER NOT NULL DEFAULT 0 CHECK (is_substitute IN (0, 1));
+      ALTER TABLE match_players ADD COLUMN role TEXT CHECK (role IN ('captain', 'viceCaptain'));
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

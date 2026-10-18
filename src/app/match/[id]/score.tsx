@@ -19,8 +19,8 @@ import {
 } from '../../../components/scoring/SelectionPanels';
 import { ErrorBanner, ErrorView, LoadingView } from '../../../components/StateViews';
 import { describeLastEvent } from '../../../domain/format';
-import type { DeliveryEvent } from '../../../domain/match';
-import { currentInnings } from '../../../domain/scoring';
+import type { DeliveryEvent, MatchEvent } from '../../../domain/match';
+import { canSwapBatters, currentInnings } from '../../../domain/scoring';
 import { useMatchScoring } from '../../../hooks/useMatchScoring';
 import { colors, font, radius, spacing } from '../../../theme/theme';
 
@@ -85,8 +85,40 @@ export default function ScoreScreen() {
     ]);
   };
 
+  const record = async (event: MatchEvent) => {
+    setQuickError(null);
+    const r = await submit(event);
+    if (!r.ok && r.error) setQuickError(r.error);
+  };
+
+  const confirmSwap = () => {
+    if (!inn?.strikerId || !inn.nonStrikerId) return;
+    const striker = inn.batters.find((b) => b.playerId === inn.strikerId)!.name;
+    const other = inn.batters.find((b) => b.playerId === inn.nonStrikerId)!.name;
+    Alert.alert(
+      'Swap batsmen?',
+      `${other} will be on strike instead of ${striker}.\n\nThis is a scorer correction, not a delivery: no ball, run or statistic changes. It is kept in the match history and can be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Swap', onPress: () => void record({ type: 'swapBatters' }) },
+      ],
+    );
+  };
+
+  const confirmAbandon = () =>
+    Alert.alert(
+      'Abandon match?',
+      'The match ends now with no result (for example because of rain or bad light). The score so far is kept. You can undo this.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Abandon match', style: 'destructive', onPress: () => void record({ type: 'abandon' }) },
+      ],
+    );
+
   const next = state.next;
   const canUndo = events.length > 1;
+  const swapAllowed = canSwapBatters(state);
+  const swapBlockedReason = next.type === 'selectBatter' ? 'Choose the new batter before swapping.' : null;
 
   return (
     <View style={styles.screen}>
@@ -117,6 +149,12 @@ export default function ScoreScreen() {
 
         {inn ? <ScoreHeader state={state} inn={inn} /> : null}
         {inn && !inn.completed ? <CreasePanel inn={inn} /> : null}
+        {swapAllowed || swapBlockedReason ? (
+          <View style={styles.swapRow}>
+            <Button title="⇄ Swap batsmen" variant="secondary" onPress={confirmSwap} disabled={blocked || !swapAllowed} />
+            {swapBlockedReason ? <Text style={styles.hint}>{swapBlockedReason}</Text> : null}
+          </View>
+        ) : null}
         {inn ? <OverStrip inn={inn} /> : null}
 
         {saving ? (
@@ -149,6 +187,12 @@ export default function ScoreScreen() {
             <Button title="Undo last action" variant="secondary" onPress={confirmUndo} disabled={blocked || !canUndo} />
           </>
         )}
+
+        {next.type !== 'matchComplete' ? (
+          <View style={styles.abandon}>
+            <Button title="Abandon match (no result)" variant="danger" onPress={confirmAbandon} disabled={blocked} />
+          </View>
+        ) : null}
       </ScrollView>
 
       {editor ? (
@@ -174,4 +218,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.sm },
   flex: { flex: 1 },
   saving: { fontSize: font.body, color: colors.textMuted, fontWeight: '700', textAlign: 'center' },
+  swapRow: { gap: spacing.xs },
+  hint: { fontSize: font.small, color: colors.textMuted, textAlign: 'center' },
+  abandon: { marginTop: spacing.xl },
 });
