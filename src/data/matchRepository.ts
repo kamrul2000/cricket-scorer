@@ -1,6 +1,7 @@
 // Stores matches: the setup snapshot plus the ordered event history.
 // This layer does not know cricket rules; the match service checks events with the scoring
 // engine before calling `appendEvent`.
+import type { MatchAwards } from '../domain/awards';
 import type { LineupPlayer, MatchEvent, MatchSetup, TeamLineup, TossDecision } from '../domain/match';
 import type { Database } from './database';
 import type { RepositoryDeps } from './deps';
@@ -27,6 +28,14 @@ export interface MatchSummary {
   updatedAt: string;
 }
 
+/** Descriptive details shown on scorecards and exports (not used by the scoring). */
+export interface MatchDetails {
+  venue: string;
+  formatName: string;
+}
+
+export const NO_DETAILS: MatchDetails = { venue: '', formatName: '' };
+
 export interface StoredMatch {
   id: string;
   status: MatchStatus;
@@ -34,6 +43,8 @@ export interface StoredMatch {
   updatedAt: string;
   setup: MatchSetup;
   events: MatchEvent[];
+  awards: MatchAwards;
+  details: MatchDetails;
 }
 
 /** Values the service recomputes from the engine on every change. */
@@ -59,6 +70,11 @@ export interface MatchRow {
   event_count: number;
   created_at: string;
   updated_at: string;
+  player_of_match_id: string | null;
+  best_batter_id: string | null;
+  best_bowler_id: string | null;
+  venue: string;
+  format_name: string;
 }
 
 export interface MatchPlayerRow {
@@ -112,7 +128,13 @@ export function storedMatchFromRows(m: MatchRow, players: readonly MatchPlayerRo
     teams: [lineup(m.team_a_id, m.team_a_name), lineup(m.team_b_id, m.team_b_name)],
     toss: { winnerTeamId: m.toss_winner_team_id, decision: m.toss_decision },
   };
-  return { id: m.id, status: m.status, createdAt: m.created_at, updatedAt: m.updated_at, setup, events };
+  const awards: MatchAwards = {
+    playerOfMatchId: m.player_of_match_id,
+    bestBatterId: m.best_batter_id,
+    bestBowlerId: m.best_bowler_id,
+  };
+  const details: MatchDetails = { venue: m.venue, formatName: m.format_name };
+  return { id: m.id, status: m.status, createdAt: m.created_at, updatedAt: m.updated_at, setup, events, awards, details };
 }
 
 const INSERT_EVENT_SQL = `INSERT INTO match_events (match_id, created_at, ${EVENT_COLUMNS.join(', ')})
@@ -123,23 +145,30 @@ export interface WriteOptions {
   failBeforeCommit?: boolean;
 }
 
+export interface CreateOptions extends WriteOptions {
+  details?: MatchDetails;
+  /** Start this scheduled match: it is marked started in the same transaction, exactly once. */
+  scheduleId?: string;
+}
+
 function simulatedFailure(options?: WriteOptions) {
   if (options?.failBeforeCommit) throw new Error('Simulated save failure (developer setting). Nothing was saved.');
 }
 
 export function createMatchRepository(db: Database, deps: RepositoryDeps) {
   return {
-    async create(setup: MatchSetup, first: EventToStore, update: MatchRowUpdate, options?: WriteOptions): Promise<string> {
+    async create(setup: MatchSetup, first: EventToStore, update: MatchRowUpdate, options?: CreateOptions): Promise<string> {
       const id = deps.newId();
       const now = deps.now();
       const [a, b] = setup.teams;
       const r = setup.rules;
+      const details = options?.details ?? NO_DETAILS;
       await db.transaction(async (tx) => {
         await tx.run(
           `INSERT INTO matches (id, status, team_a_id, team_a_name, team_b_id, team_b_name,
              overs_per_innings, players_per_side, free_hit_after_no_ball, max_overs_per_bowler,
-             toss_winner_team_id, toss_decision, summary, event_count, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+             toss_winner_team_id, toss_decision, summary, event_count, created_at, updated_at, venue, format_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
           [
             id,
             update.status,
@@ -156,8 +185,20 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
             update.summary,
             now,
             now,
+            details.venue,
+            details.formatName,
           ],
         );
+        if (options?.scheduleId) {
+          // Only a schedule that is still "scheduled" can start; a second attempt changes nothing.
+          const started = await tx.run(
+            "UPDATE scheduled_matches SET status = 'started', match_id = ?, updated_at = ? WHERE id = ? AND status = 'scheduled'",
+            [id, now, options.scheduleId],
+          );
+          if (started.changes !== 1) {
+            throw new RepositoryError('CONFLICT', 'This scheduled match has already been started or was cancelled.');
+          }
+        }
         for (const team of setup.teams) {
           const role = (playerId: string) =>
             playerId === team.captainId ? 'captain' : playerId === team.viceCaptainId ? 'viceCaptain' : null;
@@ -265,6 +306,15 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
         ]);
         simulatedFailure(options);
       });
+    },
+
+    /** Saves the awards (the service checks them against the match first). */
+    async setAwards(matchId: string, awards: MatchAwards): Promise<void> {
+      const r = await db.run(
+        'UPDATE matches SET player_of_match_id = ?, best_batter_id = ?, best_bowler_id = ?, updated_at = ? WHERE id = ?',
+        [awards.playerOfMatchId, awards.bestBatterId, awards.bestBowlerId, deps.now(), matchId],
+      );
+      if (r.changes === 0) throw new RepositoryError('NOT_FOUND', 'This match no longer exists.');
     },
 
     /** Permanently deletes a match and its history (lineup and events cascade). */

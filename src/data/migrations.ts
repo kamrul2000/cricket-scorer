@@ -180,6 +180,42 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE match_players ADD COLUMN role TEXT CHECK (role IN ('captain', 'viceCaptain'));
     `,
   },
+  {
+    version: 5,
+    description: 'match awards',
+    // NULL = not chosen (Player of the Match) or worked out automatically (best batter/bowler).
+    sql: `
+      ALTER TABLE matches ADD COLUMN player_of_match_id TEXT REFERENCES players (id) ON DELETE RESTRICT;
+      ALTER TABLE matches ADD COLUMN best_batter_id TEXT REFERENCES players (id) ON DELETE RESTRICT;
+      ALTER TABLE matches ADD COLUMN best_bowler_id TEXT REFERENCES players (id) ON DELETE RESTRICT;
+    `,
+  },
+  {
+    version: 6,
+    description: 'upcoming (scheduled) matches, and venue and format on matches',
+    sql: `
+      CREATE TABLE scheduled_matches (
+        id                TEXT PRIMARY KEY NOT NULL,
+        team_a_id         TEXT NOT NULL REFERENCES teams (id) ON DELETE RESTRICT,
+        team_b_id         TEXT NOT NULL REFERENCES teams (id) ON DELETE RESTRICT,
+        scheduled_at      TEXT NOT NULL,
+        venue             TEXT NOT NULL DEFAULT '' CHECK (length(venue) <= 80),
+        format_name       TEXT NOT NULL CHECK (length(format_name) BETWEEN 1 AND 40),
+        overs_per_innings INTEGER NOT NULL CHECK (overs_per_innings BETWEEN 1 AND 100),
+        players_per_side  INTEGER NOT NULL CHECK (players_per_side BETWEEN 2 AND 11),
+        status            TEXT NOT NULL CHECK (status IN ('scheduled', 'started', 'cancelled')),
+        -- UNIQUE: one scheduled match can start at most one match.
+        match_id          TEXT UNIQUE REFERENCES matches (id) ON DELETE SET NULL,
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL,
+        CHECK (team_a_id <> team_b_id)
+      );
+      CREATE INDEX idx_scheduled_matches_at ON scheduled_matches (scheduled_at);
+
+      ALTER TABLE matches ADD COLUMN venue TEXT NOT NULL DEFAULT '' CHECK (length(venue) <= 80);
+      ALTER TABLE matches ADD COLUMN format_name TEXT NOT NULL DEFAULT '' CHECK (length(format_name) <= 40);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

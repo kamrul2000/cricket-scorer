@@ -3,8 +3,8 @@
 import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { dismissalText, economy, formatOvers, ordinal, playerName, roleSuffix, scoreText, strikeRate } from '../../domain/format';
-import { extrasTotal, type InningsState, type MatchState } from '../../domain/scoring';
+import { dismissalText, economy, extrasLine, formatOvers, ordinal, playerName, roleSuffix, scoreText, strikeRate } from '../../domain/format';
+import type { InningsState, MatchState } from '../../domain/scoring';
 import { colors, font, radius, spacing } from '../../theme/theme';
 
 function Cell({ children, wide, bold, muted }: { children: ReactNode; wide?: boolean; bold?: boolean; muted?: boolean }) {
@@ -61,7 +61,7 @@ export function InningsScorecard({ state, inn }: { state: MatchState; inn: Innin
       </View>
 
       <Text style={styles.line}>
-        <Text style={styles.bold}>Extras {extrasTotal(ex)}</Text> (b {ex.byes}, lb {ex.legByes}, w {ex.wides}, nb {ex.noBalls})
+        <Text style={styles.bold}>Extras</Text> {extrasLine(ex)}
       </Text>
       {didNotBat.length ? (
         <Text style={styles.line}>

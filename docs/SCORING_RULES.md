@@ -20,7 +20,7 @@ playing conditions.**
 | Balls per over | 6 valid balls. | Law 17.1 |
 | Players per side | Equal for both teams, 2 to 11 (default 11). | **Local override.** The Laws assume 11 (Law 1.1), but allow other numbers by agreement. |
 | All out | When `playersPerSide - 1` wickets have fallen. "Last batter stands" is **not** supported. | Law 13.3 |
-| Result | Higher total wins (Law 16.2). Equal totals with both innings complete is a tie (Law 16.5.1). Margins are in runs (side batting first) or wickets (side batting second, = players − 1 − wickets lost). | Law 16 |
+| Result | Higher total wins (Law 16.2). Equal totals with both innings complete is a tie (Law 16.5.1). Margins are in runs (side batting first) or wickets (side batting second, = players − 1 − wickets lost). An abandoned match has no result (section 11). | Law 16 |
 | Match end | The match ends the instant the target is reached (see section 6). | Law 16.6 |
 
 ## 2. Counting balls
@@ -104,7 +104,7 @@ Fielders must be in the fielding lineup.
 - non-striker run out before delivery (Law 38.3)
 - a bowler changing mid-over (Law 17.8)
 - dead-ball re-bowls
-- substitute or runner rules
+- substitute or runner rules (substitutes can be named, see section 14)
 
 ## 6. Winning the match (Law 16.6)
 
@@ -140,7 +140,74 @@ The free hit is **not** in the MCC Laws. It is an ICC limited-overs playing cond
 
 ## 9. Undo
 
-Undo removes the most recent event: a delivery, a new-batter choice, a new-bowler choice, or
-an innings start. The match state is always recomputed from the remaining events, so undo
-reverses everything that event caused. That includes over completion, free hits, innings
-completion and the match result.
+Undo removes the most recent event: a delivery, a new-batter choice, a new-bowler choice, an
+innings start, a batter swap, or an abandon. The match state is always recomputed from the
+remaining events, so undo reverses everything that event caused. That includes over
+completion, free hits, innings completion and the match result.
+
+## 10. Scorer corrections: swap batsmen
+
+"Swap batsmen" exchanges the striker and non-striker **without a delivery**. It is a scorer
+correction (for example when the wrong batter was shown on strike), not a cricket event:
+no ball, run, extra or statistic changes. It is stored as its own event, shown in the
+ball-by-ball history as a correction, and can be undone.
+
+It is allowed whenever both batters are at the crease in an unfinished innings (including
+between overs). It is refused while a new batter has to be chosen, and after the innings.
+
+## 11. Abandoned matches (no result)
+
+"Abandon match" ends the match immediately with **no result** (for example rain or bad
+light). The score so far is kept, the current innings is marked as ended by abandonment, and
+no further deliveries can be recorded. It can be undone. Reduced targets (DLS or any other
+method) are **not** supported.
+
+## 12. Statistics shown
+
+All figures come from the scoring engine's state; screens, the PDF and the image never
+recalculate them.
+
+| Figure | Definition |
+|---|---|
+| Overs | Legal balls ÷ 6, shown as "overs.balls" (never a decimal). |
+| Run rate | Team runs × 6 ÷ legal balls. "-" before the first legal ball. |
+| Strike rate | Batter runs × 100 ÷ balls faced, 1 decimal. "-" with no balls faced. |
+| Economy | Runs debited to the bowler × 6 ÷ legal balls, 2 decimals. |
+| Required rate | Runs needed × 6 ÷ legal balls remaining. |
+| Partnership | Team runs (including extras) while two batters were together, from when the second arrived until a wicket. Balls = balls faced by the pair (wides excluded). Each batter's share is their runs off the bat. "Unbroken" = no wicket ended it. A batter swap does not start a new partnership. |
+| Over by over | Team runs and wickets in each over, and the team score at the end of it. Wides and no-balls belong to the over in which they were bowled. |
+| Batting average (career) | Runs ÷ times dismissed. "-" until dismissed once. |
+| Bowling average (career) | Runs conceded ÷ wickets. "-" until a wicket. |
+| Best bowling (career) | Most wickets in one innings, then fewest runs. |
+
+Averages are only shown across matches (on the player screen): one innings is not a
+meaningful sample. Displayed values are rounded with JavaScript's `toFixed`, which rounds the
+binary value, so an exact halfway case (such as 1.005) can round down. Only the display is
+rounded; counts of runs and balls are always whole numbers.
+
+**Not supported:** 5-run penalty awards (Law 41) and other penalty runs.
+
+## 13. Match awards (app rules, not official)
+
+**Best Batter** (automatic). Every player who batted is eligible. Ranked by: 1. most runs;
+2. fewest balls faced; 3. not out ahead of out; 4. most fours plus sixes; 5. batting earlier
+(first innings, then batting position). No automatic award when nobody scored.
+
+**Best Bowler** (automatic). Bowlers with at least one legal ball are eligible. If anyone
+bowled a full over, only bowlers with at least one full over are. Ranked by: 1. most
+wickets; 2. lowest economy; 3. most legal balls; 4. most maidens; 5. bowling earlier.
+
+**Player of the Match** is chosen by the scorer. The scorer may also override Best Batter or
+Best Bowler. Only players in the playing lineups (not substitutes) are eligible, and an
+override must be a player who batted (or an eligible bowler). Awards can be set once the
+match is complete.
+
+## 14. Lineups, captains and substitutes
+
+- Each team plays the configured number of players (2 to 11). A player can appear only once
+  per match, in one team, either in the playing lineup or as a substitute.
+- The captain and vice-captain (optional) must be in the playing lineup and be different
+  players. They default to the team's captain and vice-captain.
+- **Substitutes** are recorded and shown on the scorecard, but **cannot bat, bowl, or be
+  recorded as fielders** (catches, stumpings, run outs). Substitute, replacement and runner
+  rules (Law 24, Law 25.5) are not supported in this version.

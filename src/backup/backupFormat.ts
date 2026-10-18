@@ -25,7 +25,9 @@ import { eventToRow } from '../data/matchEventRows';
 import { storedMatchFromRows, type MatchRow } from '../data/matchRepository';
 import { LATEST_SCHEMA_VERSION } from '../data/migrations';
 import { RepositoryError } from '../data/RepositoryError';
+import { awardsError } from '../domain/awards';
 import { leadershipError, validateDescription, validateName } from '../domain/people';
+import { FORMAT_MAX_LENGTH, validateSchedule, VENUE_MAX_LENGTH } from '../domain/schedule';
 import { validateMatchSetup } from '../domain/setupValidation';
 import { rowUpdate, toLoaded } from '../services/matchService';
 
@@ -199,6 +201,17 @@ const UPGRADES: Record<number, (d: Record<string, unknown>) => Record<string, un
     teams: mapRows(d.teams, (t) => ({ ...t, description: '', logo_file: null, captain_id: null, vice_captain_id: null })),
     matchPlayers: mapRows(d.matchPlayers, (p) => ({ ...p, is_substitute: 0, role: null })),
   }),
+  // 4 -> 5: match awards (none chosen; best batter and bowler automatic).
+  4: (d) => ({
+    ...d,
+    matches: mapRows(d.matches, (m) => ({ ...m, player_of_match_id: null, best_batter_id: null, best_bowler_id: null })),
+  }),
+  // 5 -> 6: scheduled matches (none), and venue and format on matches (blank).
+  5: (d) => ({
+    ...d,
+    matches: mapRows(d.matches, (m) => ({ ...m, venue: '', format_name: '' })),
+    scheduledMatches: [],
+  }),
 };
 
 /** Applies `fn` to each row that is an object; anything else is left for the structure check. */
@@ -340,6 +353,37 @@ function checkReferences(d: BackupData): string[] {
       break; // one message is enough
     }
   }
+  for (const m of d.matches) {
+    if (m.venue.length > VENUE_MAX_LENGTH || m.format_name.length > FORMAT_MAX_LENGTH) {
+      errors.push(`${matchLabel(m)} has a venue or format name that is too long.`);
+    }
+  }
+
+  uniqueIds(d.scheduledMatches, 'scheduled matches');
+  const startedMatches = new Set<string>();
+  for (const s of d.scheduledMatches) {
+    const label = `Scheduled match ${s.id}`;
+    const { errors: problems } = validateSchedule({
+      teamAId: s.team_a_id,
+      teamBId: s.team_b_id,
+      scheduledAt: s.scheduled_at,
+      venue: s.venue,
+      formatName: s.format_name,
+      oversPerInnings: s.overs_per_innings,
+      playersPerSide: s.players_per_side,
+    });
+    if (problems.length) errors.push(`${label}: ${problems[0]}`);
+    for (const t of [s.team_a_id, s.team_b_id]) {
+      if (!teamIds.has(t)) errors.push(`${label} refers to a missing team (${t}).`);
+    }
+    if (!['scheduled', 'started', 'cancelled'].includes(s.status)) errors.push(`${label} has an invalid status.`);
+    if (s.match_id !== null) {
+      if (s.status !== 'started') errors.push(`${label} is linked to a match but is not marked as started.`);
+      if (!matchIds.has(s.match_id)) errors.push(`${label} refers to a missing match (${s.match_id}).`);
+      if (startedMatches.has(s.match_id)) errors.push(`Two scheduled matches started the same match (${s.match_id}).`);
+      startedMatches.add(s.match_id);
+    }
+  }
   return errors;
 }
 
@@ -402,6 +446,11 @@ function replayMatches(d: BackupData): { ok: true; data: BackupData; summary: Ba
         continue;
       }
       const loaded = toLoaded(stored); // replays every event through the scoring engine
+      const awardProblem = awardsError(loaded.state, loaded.awards);
+      if (awardProblem) {
+        errors.push(`${label}: ${awardProblem}`);
+        continue;
+      }
       const update = rowUpdate(loaded.state);
       matches.push({ ...m, status: update.status, summary: update.summary });
 

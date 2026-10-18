@@ -122,6 +122,55 @@ describe('lineups, captains and substitutes', () => {
   });
 });
 
+describe('awards storage', () => {
+  async function finished() {
+    const a = await app();
+    const tA = await a.repos.teams.create('A', [a.ps[0].id, a.ps[1].id]);
+    const tB = await a.repos.teams.create('B', [a.ps[3].id, a.ps[4].id]);
+    const p = (i: number) => ({ playerId: a.ps[i].id, name: a.ps[i].name });
+    const setup: MatchSetup = {
+      rules: { oversPerInnings: 1, playersPerSide: 2, freeHitAfterNoBall: true, maxOversPerBowler: null },
+      teams: [
+        { teamId: tA.id, name: 'A', players: [p(0), p(1)] },
+        { teamId: tB.id, name: 'B', players: [p(3), p(4)] },
+      ],
+      toss: { winnerTeamId: tA.id, decision: 'bat' },
+    };
+    const id = await a.matches.startMatch(setup, { strikerId: a.ps[0].id, nonStrikerId: a.ps[1].id, bowlerId: a.ps[3].id });
+    let m = (await a.matches.loadMatch(id))!;
+    const tm = () => {
+      const t = new TestMatch(m.setup);
+      t.events = [...m.events];
+      return t;
+    };
+    m = await a.matches.recordEvent(m, tm().deliveryEvent({ dismissal: out.bowled() })); // all out (2 a side)
+    return { ...a, m, id };
+  }
+
+  it('refuses awards before the match is complete, and for ineligible players', async () => {
+    const { matches, m, ps } = await finished();
+    await expect(matches.setAwards(m, { playerOfMatchId: ps[0].id, bestBatterId: null, bestBowlerId: null })).rejects.toThrow(
+      /once the match is complete/,
+    );
+    const done = await matches.recordEvent(m, { type: 'abandon' });
+    await expect(matches.setAwards(done, { playerOfMatchId: ps[2].id, bestBatterId: null, bestBowlerId: null })).rejects.toThrow(
+      /playing lineups/,
+    );
+  });
+
+  it('saves awards, keeps them on reload, and carries them through a backup', async () => {
+    const { matches, backups, m, id, ps } = await finished();
+    const done = await matches.recordEvent(m, { type: 'abandon' });
+    await matches.setAwards(done, { playerOfMatchId: ps[3].id, bestBatterId: null, bestBowlerId: ps[3].id });
+    expect((await matches.loadMatch(id))!.awards).toEqual({ playerOfMatchId: ps[3].id, bestBatterId: null, bestBowlerId: ps[3].id });
+
+    const file = JSON.parse((await backups.createBackup()).json);
+    expect(parseBackup(JSON.stringify(file)).ok).toBe(true);
+    file.data.matches[0].best_batter_id = ps[4].id; // never batted
+    expect(parseBackup(JSON.stringify(file))).toMatchObject({ ok: false, errors: [expect.stringMatching(/Best Batter must be a player who batted/)] });
+  });
+});
+
 describe('logos in backups', () => {
   const PNG = 'iVBORw0KGgo='; // any valid base64 will do for the tests
 

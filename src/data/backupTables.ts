@@ -2,6 +2,7 @@
 // Used to read and write backups, and to check the structure of a backup file before restoring.
 import { EVENT_COLUMNS, type EventRow } from './matchEventRows';
 import type { MatchPlayerRow, MatchRow } from './matchRepository';
+import type { ScheduleRow } from './scheduleRepository';
 
 /** text = non-empty string; string = any string (may be empty); int = whole number; `?` = may also be null. */
 export type ColumnKind = 'text' | 'string' | 'text?' | 'int' | 'int?';
@@ -37,6 +38,7 @@ export interface BackupData {
   matches: MatchRow[];
   matchPlayers: MatchPlayerRow[];
   matchEvents: MatchEventBackupRow[];
+  scheduledMatches: ScheduleRow[];
 }
 
 export type BackupTableKey = keyof BackupData;
@@ -110,8 +112,31 @@ export const BACKUP_TABLES: Record<BackupTableKey, TableSpec> = {
       event_count: 'int',
       created_at: 'text',
       updated_at: 'text',
+      player_of_match_id: 'text?',
+      best_batter_id: 'text?',
+      best_bowler_id: 'text?',
+      venue: 'string',
+      format_name: 'string',
     },
     orderBy: 'created_at, id',
+  },
+  scheduledMatches: {
+    table: 'scheduled_matches',
+    columns: {
+      id: 'text',
+      team_a_id: 'text',
+      team_b_id: 'text',
+      scheduled_at: 'text',
+      venue: 'string',
+      format_name: 'text',
+      overs_per_innings: 'int',
+      players_per_side: 'int',
+      status: 'text',
+      match_id: 'text?',
+      created_at: 'text',
+      updated_at: 'text',
+    },
+    orderBy: 'scheduled_at, id',
   },
   matchPlayers: {
     table: 'match_players',
@@ -138,4 +163,12 @@ export const BACKUP_TABLES: Record<BackupTableKey, TableSpec> = {
 };
 
 /** Parents before children, so foreign keys are satisfied while inserting. */
-export const INSERT_ORDER: BackupTableKey[] = ['players', 'teams', 'teamPlayers', 'matches', 'matchPlayers', 'matchEvents'];
+export const INSERT_ORDER: BackupTableKey[] = [
+  'players',
+  'teams',
+  'teamPlayers',
+  'matches',
+  'matchPlayers',
+  'matchEvents',
+  'scheduledMatches',
+];

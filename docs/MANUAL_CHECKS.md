@@ -56,3 +56,51 @@ restore. These checks cover what only a real phone can show. Run them on the **r
 - [ ] In the new-match wizard, Back goes to the previous step, then leaves the wizard.
 - [ ] On the scoring screen, Back returns to Matches; the match is listed as Resume.
 - [ ] Scorecard > Resume scoring > Scorecard > Back > Back returns to Matches (no pile-up).
+
+## Swap batsmen and abandon
+
+- [ ] Mid-over, tap "Swap batsmen", confirm: the ON STRIKE marker moves; score, balls and
+      figures do not change. The next ball is credited to the new striker.
+- [ ] After a wicket (new batter needed), "Swap batsmen" is disabled with an explanation.
+- [ ] Undo removes the swap. Close and reopen the app: swaps and undos are as left.
+- [ ] "Abandon match (no result)": confirm; the result reads "No result (match abandoned)".
+      Undo reopens the match.
+
+## Teams, logos, captains and substitutes
+
+- [ ] Edit a team: choose a logo from the gallery (a large photo too), add a description, pick a
+      captain and vice-captain. The logo shows in the Teams list.
+- [ ] Untick the captain from the squad: the captain choice clears.
+- [ ] Turn on airplane mode, delete the original photo from the gallery, reopen the app: the
+      logo still shows (it was copied into the app).
+- [ ] New match: captain/vice-captain default from the team; pick substitutes. A substitute
+      cannot be chosen as opener, new batter, bowler, catcher or keeper. The scorecard shows
+      (c), (vc) and the substitutes.
+
+## Scorecard, awards and exports
+
+- [ ] Scorecard shows partnerships and over-by-over for each innings.
+- [ ] After the match: Awards card shows automatic Best Batter and Best Bowler; choose a Player
+      of the Match and override one award; reopen: the choices are kept.
+- [ ] "Share scorecard": Save PDF to a folder, open it in a PDF viewer: both innings, logos,
+      awards; a 20-over match continues over several pages with column headings on each.
+- [ ] Share PDF and Share image through WhatsApp or Drive. Save image to Pictures.
+- [ ] Repeat the exports in airplane mode.
+
+## Upcoming matches and posters
+
+- [ ] Schedule match: two teams, date and time (Android pickers), venue, T10 format. It shows
+      under Upcoming on the Matches tab, soonest first.
+- [ ] Edit it; cancel it (it moves to the end, marked Cancelled); restore it.
+- [ ] Match poster: both templates look right with and without logos and with a long venue;
+      save the PNG to Pictures and share it. Check the PNG is 1080 × 1350.
+- [ ] Start scoring from the upcoming match: teams, overs and venue are filled in. After
+      starting, the upcoming entry disappears and the match is In progress.
+- [ ] Open the upcoming match again (e.g. with Back) and tap Start scoring: it says the match
+      has already started instead of creating a second one.
+
+## Upgrading from the Stage 4 app
+
+- [ ] Install the Stage 4 APK, score part of a match, then install this version over it
+      (same signing key). Everything is still there, the match resumes, and a Stage 4 backup
+      file restores.

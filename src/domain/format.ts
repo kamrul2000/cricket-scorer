@@ -2,7 +2,9 @@
 import { BALLS_PER_OVER, type MatchEvent, type MatchSetup, type TeamLineup } from './match';
 import {
   currentInnings,
+  extrasTotal,
   type DeliveryRecord,
+  type Extras,
   type InningsState,
   type MatchResult,
   type MatchState,
@@ -129,6 +131,11 @@ export function economy(runsConceded: number, legalBalls: number): string {
  */
 export function formatAverage(runs: number, dismissals: number): string {
   return dismissals === 0 ? '-' : (runs / dismissals).toFixed(2);
+}
+
+/** "12 (b 2, lb 1, w 6, nb 3)" */
+export function extrasLine(e: Extras): string {
+  return `${extrasTotal(e)} (b ${e.byes}, lb ${e.legByes}, w ${e.wides}, nb ${e.noBalls})`;
 }
 
 /** " (c)" for the captain, " (vc)" for the vice-captain, "" otherwise. */

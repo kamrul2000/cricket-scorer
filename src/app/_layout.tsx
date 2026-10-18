@@ -25,6 +25,9 @@ export default function RootLayout() {
           <Stack.Screen name="match/[id]/score" options={{ title: 'Scoring' }} />
           <Stack.Screen name="match/[id]/index" options={{ title: 'Scorecard' }} />
           <Stack.Screen name="backup" options={{ title: 'Backup and restore' }} />
+          <Stack.Screen name="schedule/[id]/index" options={{ title: 'Upcoming match' }} />
+          <Stack.Screen name="schedule/[id]/poster" options={{ title: 'Match poster' }} />
+          <Stack.Screen name="match/[id]/export" options={{ title: 'Share scorecard' }} />
         </Stack>
       </AppDataProvider>
     </SafeAreaProvider>

@@ -25,7 +25,8 @@
       "expo-router",
       "expo-sqlite",
       "expo-sharing",
-      "./plugins/withReleaseSigning"
+      "./plugins/withReleaseSigning",
+      "@react-native-community/datetimepicker"
     ]
   }
 }

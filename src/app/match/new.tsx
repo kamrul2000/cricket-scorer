@@ -1,6 +1,6 @@
 // New match wizard: format -> lineup 1 -> lineup 2 -> toss -> openers -> start.
 // Nothing is saved until "Start match"; then the match and its first event are saved together.
-import { Stack, useFocusEffect, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { BackHandler, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +20,7 @@ import {
   type TeamLineup,
   type TossDecision,
 } from '../../domain/match';
+import { MATCH_FORMATS, VENUE_MAX_LENGTH } from '../../domain/schedule';
 import { firstBattingTeamIndex, validateMatchSetup } from '../../domain/setupValidation';
 import { useFocusLoad } from '../../hooks/useFocusLoad';
 import { useGuardedAction } from '../../hooks/useGuardedAction';
@@ -48,11 +49,15 @@ function parseWhole(text: string): number | null {
 }
 
 export default function NewMatchScreen() {
-  const { teams, players } = useRepositories();
+  const { scheduleId } = useLocalSearchParams<{ scheduleId?: string }>();
+  const { teams, players, schedules } = useRepositories();
   const service = useMatchService();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { run, pending } = useGuardedAction();
+
+  const scheduleLoad = useFocusLoad(async () => (scheduleId ? schedules.get(scheduleId) : null), [schedules, scheduleId]);
+  const schedule = scheduleLoad.data;
 
   const { data, error, reload } = useFocusLoad(async () => {
     const [teamList, activePlayers] = await Promise.all([teams.list(), players.list()]);
@@ -91,6 +96,21 @@ export default function NewMatchScreen() {
   const [decision, setDecision] = useState<TossDecision | null>(null);
   const [openers, setOpeners] = useState<Openers>({ strikerId: null, nonStrikerId: null, bowlerId: null });
   const [stepError, setStepError] = useState<string | null>(null);
+  const [venue, setVenue] = useState('');
+  const [formatName, setFormatName] = useState('Custom');
+  const [prefilled, setPrefilled] = useState(false);
+
+  // Starting a scheduled match: copy its teams and settings in once (adjusting state during render).
+  if (schedule && !prefilled) {
+    setTeamAId(schedule.teamAId);
+    setTeamBId(schedule.teamBId);
+    setOversText(String(schedule.oversPerInnings));
+    setPlayersPerSide(schedule.playersPerSide);
+    setVenue(schedule.venue);
+    setFormatName(schedule.formatName);
+    setPrefilled(true);
+  }
+  const fromSchedule = !!scheduleId;
 
   // Android back button goes to the previous step instead of leaving the wizard.
   useFocusEffect(
@@ -133,7 +153,31 @@ export default function NewMatchScreen() {
   }, [teamA, teamB, tossWinner, decision, oversText, playersPerSide, freeHit, maxOversText, lineupA, lineupB, subsA, subsB, leadersA, leadersB]);
 
   if (error && !data) return <ErrorView message={error} onRetry={reload} />;
-  if (!data) return <LoadingView />;
+  if (!data || (fromSchedule && !prefilled && scheduleLoad.loading)) return <LoadingView />;
+  if (fromSchedule && !prefilled) {
+    return <ErrorView title="Not found" message={scheduleLoad.error ?? 'This scheduled match no longer exists.'} onRetry={scheduleLoad.reload} />;
+  }
+  if (fromSchedule && schedule && schedule.status !== 'scheduled') {
+    return (
+      <View style={styles.center}>
+        <EmptyState
+          title={schedule.status === 'started' ? 'Already started' : 'Match cancelled'}
+          message={
+            schedule.status === 'started'
+              ? 'Scoring has already started for this scheduled match, so it cannot be started again.'
+              : 'This scheduled match was cancelled. Restore it before starting it.'
+          }
+        />
+        <View style={styles.padded}>
+          {schedule.matchId ? (
+            <Button title="Open the match" onPress={() => router.replace(`/match/${schedule.matchId}/score`)} />
+          ) : (
+            <Button title="Back" onPress={() => router.back()} />
+          )}
+        </View>
+      </View>
+    );
+  }
   if (data.length < 2) {
     return (
       <View style={styles.center}>
@@ -214,11 +258,11 @@ export default function NewMatchScreen() {
         return;
       }
       try {
-        const id = await service.startMatch(setup, {
-          strikerId: openers.strikerId,
-          nonStrikerId: openers.nonStrikerId,
-          bowlerId: openers.bowlerId,
-        });
+        const id = await service.startMatch(
+          setup,
+          { strikerId: openers.strikerId, nonStrikerId: openers.nonStrikerId, bowlerId: openers.bowlerId },
+          { details: { venue, formatName }, scheduleId },
+        );
         router.replace(`/match/${id}/score`);
       } catch (e) {
         setStepError(errorMessage(e)); // nothing was saved; the user can fix and retry
@@ -313,17 +357,29 @@ export default function NewMatchScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {step === 0 ? (
           <>
+            {fromSchedule ? <Text style={styles.help}>Teams come from the scheduled match.</Text> : null}
             <Text style={styles.heading}>Team 1</Text>
             <Chips
-              options={data.map((t) => ({ value: t.id, label: t.name, disabled: t.id === teamBId }))}
+              options={data.map((t) => ({ value: t.id, label: t.name, disabled: fromSchedule || t.id === teamBId }))}
               value={teamAId}
               onChange={setTeamAId}
             />
             <Text style={styles.heading}>Team 2</Text>
             <Chips
-              options={data.map((t) => ({ value: t.id, label: t.name, disabled: t.id === teamAId }))}
+              options={data.map((t) => ({ value: t.id, label: t.name, disabled: fromSchedule || t.id === teamAId }))}
               value={teamBId}
               onChange={setTeamBId}
+            />
+            <TextField label="Venue (optional)" value={venue} onChangeText={setVenue} maxLength={VENUE_MAX_LENGTH} placeholder="e.g. Eastfield Park" />
+            <Text style={styles.heading}>Format</Text>
+            <Chips
+              options={MATCH_FORMATS.map((f) => ({ value: f.name, label: f.overs ? `${f.name} (${f.overs})` : f.name }))}
+              value={MATCH_FORMATS.some((f) => f.name === formatName) ? formatName : 'Custom'}
+              onChange={(name) => {
+                setFormatName(name);
+                const f = MATCH_FORMATS.find((x) => x.name === name);
+                if (f?.overs) setOversText(String(f.overs));
+              }}
             />
             <Text style={styles.heading}>Players per side</Text>
             <Chips

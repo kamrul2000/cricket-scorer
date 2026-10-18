@@ -6,11 +6,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../../../components/Button';
 import { Chips } from '../../../components/Chips';
+import { AwardsCard } from '../../../components/scorecard/AwardsCard';
 import { BallByBall } from '../../../components/scorecard/BallByBall';
 import { InningsScorecard } from '../../../components/scorecard/InningsScorecard';
 import { ErrorBanner, ErrorView, LoadingView } from '../../../components/StateViews';
 import { useMatchService } from '../../../data/AppDataProvider';
 import { matchSummary, teamName } from '../../../domain/format';
+import { formatLabel, formatMatchDate, formatMatchTime } from '../../../domain/schedule';
 import { useFocusLoad } from '../../../hooks/useFocusLoad';
 import { useGuardedAction } from '../../../hooks/useGuardedAction';
 import { colors, font, radius, spacing } from '../../../theme/theme';
@@ -65,9 +67,9 @@ export default function MatchScorecardScreen() {
 
   const toss = `${teamName(setup, setup.toss.winnerTeamId)} won the toss and chose to ${setup.toss.decision}.`;
   const r = setup.rules;
-  const rules = `${r.oversPerInnings} overs · ${r.playersPerSide} a side · free hit ${r.freeHitAfterNoBall ? 'on' : 'off'}${
-    r.maxOversPerBowler ? ` · max ${r.maxOversPerBowler} overs per bowler` : ''
-  }`;
+  const rules = `${formatLabel(match.details.formatName, r.oversPerInnings)} · ${r.playersPerSide} a side · free hit ${
+    r.freeHitAfterNoBall ? 'on' : 'off'
+  }${r.maxOversPerBowler ? ` · max ${r.maxOversPerBowler} overs per bowler` : ''}`;
 
   return (
     <ScrollView contentContainerStyle={[styles.content, { paddingBottom: spacing.lg + insets.bottom }]}>
@@ -79,7 +81,10 @@ export default function MatchScorecardScreen() {
         <Text style={styles.summaryText}>{matchSummary(state)}</Text>
         <Text style={styles.meta}>{toss}</Text>
         <Text style={styles.meta}>{rules}</Text>
-        <Text style={styles.meta}>Started {new Date(match.createdAt).toLocaleString()}</Text>
+        {match.details.venue ? <Text style={styles.meta}>Venue: {match.details.venue}</Text> : null}
+        <Text style={styles.meta}>
+          Started {formatMatchDate(match.createdAt)}, {formatMatchTime(match.createdAt)}
+        </Text>
       </View>
 
       {/* dismissTo returns to the scoring screen if we came from it, so screens do not pile up. */}
@@ -88,6 +93,30 @@ export default function MatchScorecardScreen() {
       ) : (
         <Button title="Open scoring screen (to undo)" variant="secondary" onPress={() => router.dismissTo(`/match/${id}/score`)} />
       )}
+
+      {completed ? (
+        <Button title="Share scorecard (PDF or image)" variant="secondary" onPress={() => router.push(`/match/${id}/export`)} />
+      ) : null}
+
+      {completed ? (
+        <AwardsCard
+          state={state}
+          awards={match.awards}
+          saving={pending}
+          onSave={async (awards) => {
+            let problem: string | null = null;
+            await run(async () => {
+              try {
+                await service.setAwards(match, awards);
+                await reload();
+              } catch (e) {
+                problem = errorMessage(e);
+              }
+            });
+            return problem;
+          }}
+        />
+      ) : null}
 
       <Chips options={tabs} value={tab} onChange={setTab} accessibilityLabel="Choose innings and view" />
 

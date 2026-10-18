@@ -2,6 +2,7 @@
 // 1) the scoring engine checks the action and computes the new state,
 // 2) the repository saves it in a single transaction,
 // 3) only then does the caller get the new state to display.
+import { awardsError, type MatchAwards } from '../domain/awards';
 import { matchSummary } from '../domain/format';
 import type { InningsStartEvent, MatchEvent, MatchSetup } from '../domain/match';
 import {
@@ -12,7 +13,8 @@ import {
   tryAddEvent,
   type MatchState,
 } from '../domain/scoring';
-import type { MatchRepository, MatchRowUpdate, StoredMatch } from '../data/matchRepository';
+import type { MatchDetails, MatchRepository, MatchRowUpdate, StoredMatch } from '../data/matchRepository';
+import { FORMAT_MAX_LENGTH, VENUE_MAX_LENGTH } from '../domain/schedule';
 import { RepositoryError } from '../data/RepositoryError';
 import { takeFault } from './faultInjection';
 
@@ -24,6 +26,8 @@ export interface LoadedMatch {
   setup: MatchSetup;
   events: MatchEvent[];
   state: MatchState;
+  awards: MatchAwards;
+  details: MatchDetails;
 }
 
 /** The match-list columns, always recomputed from the scoring engine's state. */
@@ -35,7 +39,15 @@ export function rowUpdate(state: MatchState): MatchRowUpdate {
 export function toLoaded(stored: StoredMatch): LoadedMatch {
   try {
     const state = computeMatchState(stored.setup, stored.events);
-    return { id: stored.id, createdAt: stored.createdAt, setup: stored.setup, events: stored.events, state };
+    return {
+      id: stored.id,
+      createdAt: stored.createdAt,
+      setup: stored.setup,
+      events: stored.events,
+      state,
+      awards: stored.awards,
+      details: stored.details,
+    };
   } catch (e) {
     if (e instanceof ScoringError) {
       const where = e.eventIndex === null ? '' : ` at saved action ${e.eventIndex + 1}`;
@@ -47,11 +59,25 @@ export function toLoaded(stored: StoredMatch): LoadedMatch {
 
 export function createMatchService(matches: MatchRepository) {
   return {
-    /** Validates the setup and openers with the engine, then saves the new match. */
-    async startMatch(setup: MatchSetup, openers: Omit<InningsStartEvent, 'type'>): Promise<string> {
+    /**
+     * Validates the setup and openers with the engine, then saves the new match. With a
+     * `scheduleId`, that scheduled match is marked started in the same transaction (once only).
+     */
+    async startMatch(
+      setup: MatchSetup,
+      openers: Omit<InningsStartEvent, 'type'>,
+      extra: { details?: MatchDetails; scheduleId?: string } = {},
+    ): Promise<string> {
       const event: InningsStartEvent = { type: 'inningsStart', ...openers };
       const state = computeMatchState(setup, [event]); // throws ScoringError if invalid
-      return matches.create(setup, { event, inningsIndex: 0, record: null }, rowUpdate(state), takeFault());
+      const details = extra.details ? { venue: extra.details.venue.trim(), formatName: extra.details.formatName.trim() } : undefined;
+      if (details && details.venue.length > VENUE_MAX_LENGTH) throw new ScoringError(`The venue must be ${VENUE_MAX_LENGTH} characters or fewer.`);
+      if (details && details.formatName.length > FORMAT_MAX_LENGTH) throw new ScoringError('The format name is too long.');
+      return matches.create(setup, { event, inningsIndex: 0, record: null }, rowUpdate(state), {
+        ...takeFault(),
+        details,
+        scheduleId: extra.scheduleId,
+      });
     },
 
     async loadMatch(id: string): Promise<LoadedMatch | null> {
@@ -104,6 +130,15 @@ export function createMatchService(matches: MatchRepository) {
         }
       }
       return { matches: matchesFound, skipped };
+    },
+
+    /** Saves the awards of a finished match after checking every chosen player is eligible. */
+    async setAwards(match: LoadedMatch, awards: MatchAwards): Promise<LoadedMatch> {
+      if (!match.state.result) throw new ScoringError('Awards can be given once the match is complete.');
+      const problem = awardsError(match.state, awards);
+      if (problem) throw new ScoringError(problem);
+      await matches.setAwards(match.id, awards);
+      return { ...match, awards };
     },
 
     deleteMatch(id: string): Promise<void> {

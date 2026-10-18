@@ -45,13 +45,16 @@ export default function BackupScreen() {
       reset();
       try {
         const backup = await service.createBackup();
+        const logoNote = backup.missingLogos
+          ? ` ${backup.missingLogos} team logo image${backup.missingLogos === 1 ? ' was' : 's were'} missing on this phone and left out.`
+          : '';
         if (to === 'folder') {
           const name = await saveBackupToFolder(backup.json, backup.fileName);
-          if (name) setMessage(`Backup saved as ${name}: ${describeSummary(backup.summary)}.`);
+          if (name) setMessage(`Backup saved as ${name}: ${describeSummary(backup.summary)}.${logoNote}`);
         } else {
           await shareBackup(backup.json, backup.fileName);
           setMessage(
-            `Backup created: ${describeSummary(backup.summary)}. Check that the app you chose actually saved or sent it.`,
+            `Backup created: ${describeSummary(backup.summary)}. Check that the app you chose actually saved or sent it.${logoNote}`,
           );
         }
       } catch (e) {
@@ -134,7 +137,10 @@ export default function BackupScreen() {
 
       <View style={styles.card}>
         <Text style={styles.heading}>Create a backup</Text>
-        <Text style={styles.line}>All players, teams and matches, in one file. The file is checked before it is saved.</Text>
+        <Text style={styles.line}>
+          All players, teams (with logos), matches, awards and upcoming matches, in one file. The file is checked before it
+          is saved.
+        </Text>
         <Button title="Save to a folder…" onPress={() => void exportBackup('folder')} loading={pending} />
         <Button title="Share (Drive, email…)" variant="secondary" onPress={() => void exportBackup('share')} disabled={pending} />
       </View>
