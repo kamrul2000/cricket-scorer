@@ -2,6 +2,7 @@
 // The preview is produced by the scoring engine itself, so what you see is what will be saved.
 import { useMemo, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DISMISSAL_LABELS, playerName } from '../../domain/format';
 import {
@@ -67,6 +68,9 @@ interface Props {
 export function DeliveryEditor({ visible, preset, state, events, saving, onCancel, onSubmit }: Props) {
   const [draft, setDraft] = useState<Draft>(() => draftFor(preset));
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // With edge-to-edge on, Android always draws this full-screen modal under the status bar and
+  // the navigation buttons, so keep the title and the Save/Cancel buttons clear of them.
+  const insets = useSafeAreaInsets();
 
   const inn = currentInnings(state);
   const set = (patch: Partial<Draft>) => {
@@ -155,7 +159,7 @@ export function DeliveryEditor({ visible, preset, state, events, saving, onCance
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onCancel}>
       <View style={styles.screen}>
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: spacing.md + insets.top }]}>
           <Text style={styles.title}>Record delivery</Text>
           <Text style={styles.subtitle}>
             {playerName(state.setup, inn.bowlerId)} to {strikerName}
@@ -258,7 +262,7 @@ export function DeliveryEditor({ visible, preset, state, events, saving, onCance
           ) : null}
         </ScrollView>
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: spacing.md + insets.bottom }]}>
           {error || submitError ? (
             <Text style={styles.error} accessibilityRole="alert">
               {submitError ?? error}

@@ -12,7 +12,11 @@ PowerShell, run from the project folder unless stated otherwise.
    `C:\Program Files\Microsoft\jdk-17.x.x-hotspot`; check the actual name).
 2. **Android Studio** from <https://developer.android.com/studio>, Standard install. In
    *Settings > Languages & Frameworks > Android SDK* install **Android SDK Platform 36** and
-   at least one **Android SDK Build-Tools**.
+   at least one **Android SDK Build-Tools**. On the **SDK Tools** tab, tick **Show Package
+   Details** and also install **NDK (Side by side) 27.1.12297006** and **CMake 3.22.1**:
+   several packages (expo-modules-core, expo-sqlite, react-native-screens,
+   react-native-gesture-handler) compile native code. Gradle can download these itself, but
+   if a build is stopped during that download it leaves a broken NDK folder behind.
 3. Set the user environment variable `ANDROID_HOME` to `%LOCALAPPDATA%\Android\Sdk` and add
    `%LOCALAPPDATA%\Android\Sdk\platform-tools` to your user `Path`.
 4. Open a **new** terminal and check: `java -version` shows 17, and `adb --version` works.
@@ -75,8 +79,11 @@ The default APK contains code for all four CPU types. For a smaller APK that sti
 practically every phone from the last ten years:
 
 ```powershell
-.\gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+.\gradlew.bat assembleRelease "-PreactNativeArchitectures=arm64-v8a,armeabi-v7a"
 ```
+
+Keep the quotes: without them PowerShell treats the comma as its own syntax and refuses to
+run the command ("Missing argument in parameter list").
 
 ## 5. Check the signature
 
@@ -109,6 +116,13 @@ Data in Expo Go is separate again and is not visible to the APK.
 
 ## Notes
 
+- `package.json` excludes **react-native-gesture-handler** and **react-native-reanimated** from
+  Android autolinking (`expo.autolinking.android.exclude`). They are installed only as optional
+  extras of expo-router's drawer, the app never uses them, and on Windows the gesture handler's
+  generated C++ file paths exceed the 260-character limit (`ninja: error: Stat(...): Filename
+  longer than 260 characters`). If the app ever needs them (for example a drawer navigator),
+  remove the exclusion and build from a shorter folder path, or with Windows long paths enabled
+  and a newer CMake.
 - The release build bundles the JavaScript and all assets inside the APK; it never contacts
   a development server.
 - The `INTERNET` permission comes from the Expo template (used by development tools). The app

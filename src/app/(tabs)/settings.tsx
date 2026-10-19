@@ -3,6 +3,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { DEVELOPER } from '../../appInfo';
 import { Button } from '../../components/Button';
 import { useAppData } from '../../data/AppDataProvider';
 import { faultInjection } from '../../services/matchService';
@@ -52,12 +53,22 @@ export default function SettingsScreen() {
           />
         </View>
       ) : null}
+      <View style={styles.footer}>
+        <Text style={styles.footerName}>Developed by {DEVELOPER.name}</Text>
+        <Text style={styles.footerRole}>
+          {DEVELOPER.role}, {DEVELOPER.company}
+        </Text>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: spacing.md, gap: spacing.md },
+  // flexGrow + marginTop 'auto' keep the footer at the bottom of the screen when there is room.
+  content: { padding: spacing.md, gap: spacing.md, flexGrow: 1 },
+  footer: { marginTop: 'auto', alignItems: 'center', paddingTop: spacing.lg, gap: 2 },
+  footerName: { fontSize: font.body, fontWeight: '700', color: colors.textMuted, textAlign: 'center' },
+  footerRole: { fontSize: font.small, color: colors.textMuted, textAlign: 'center' },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,

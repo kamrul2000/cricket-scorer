@@ -42,6 +42,16 @@
     "lint": "expo lint"
   },
   "private": true,
+  "expo": {
+    "autolinking": {
+      "android": {
+        "exclude": [
+          "react-native-gesture-handler",
+          "react-native-reanimated"
+        ]
+      }
+    }
+  },
   "jest": {
     "preset": "jest-expo",
     "testPathIgnorePatterns": [
