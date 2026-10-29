@@ -29,7 +29,7 @@ import { awardsError } from '../domain/awards';
 import { leadershipError, validateDescription, validateName } from '../domain/people';
 import { FORMAT_MAX_LENGTH, validateSchedule, VENUE_MAX_LENGTH } from '../domain/schedule';
 import { validateMatchSetup } from '../domain/setupValidation';
-import { rowUpdate, toLoaded } from '../services/matchService';
+import { rowUpdate, storableEvents, toLoaded } from '../services/matchService';
 
 export const BACKUP_FORMAT = 'local-cricket-scorer-backup';
 /** 1 = data only (Stage 4). 2 = adds `files` with team logos. */
@@ -211,6 +211,11 @@ const UPGRADES: Record<number, (d: Record<string, unknown>) => Record<string, un
     ...d,
     matches: mapRows(d.matches, (m) => ({ ...m, venue: '', format_name: '' })),
     scheduledMatches: [],
+  }),
+  // 6 -> 7: new event types; existing events get the new retirement column (none).
+  6: (d) => ({
+    ...d,
+    matchEvents: mapRows(d.matchEvents, (e) => ({ ...e, retirement: null })),
   }),
 };
 
@@ -454,16 +459,8 @@ function replayMatches(d: BackupData): { ok: true; data: BackupData; summary: Ba
       const update = rowUpdate(loaded.state);
       matches.push({ ...m, status: update.status, summary: update.summary });
 
-      const records = new Map(loaded.state.innings.flatMap((inn) => inn.deliveries).map((r) => [r.eventIndex, r]));
-      let inningsIndex = -1;
-      loaded.events.forEach((event, seq) => {
-        if (event.type === 'inningsStart') inningsIndex += 1;
-        const derived = eventToRow(seq, {
-          event,
-          inningsIndex: inningsIndex as 0 | 1,
-          record: records.get(seq) ?? null,
-        });
-        events.push({ ...derived, match_id: m.id, created_at: rows[seq].created_at });
+      storableEvents(loaded.state, loaded.events).forEach((item, seq) => {
+        events.push({ ...eventToRow(seq, item), match_id: m.id, created_at: rows[seq].created_at });
       });
     } catch (e) {
       if (e instanceof RepositoryError) errors.push(`${label}: ${e.message}`);

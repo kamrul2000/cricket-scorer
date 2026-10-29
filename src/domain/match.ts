@@ -7,12 +7,13 @@ export const MAX_PLAYERS_PER_SIDE = 11;
 export const MAX_OVERS_PER_INNINGS = 100;
 /** Sanity limit for runs completed by running on one delivery. */
 export const MAX_RUNS_PER_DELIVERY = 7;
+/** A Super Over innings: one over, ended by the loss of two wickets (ICC playing conditions). */
+export const SUPER_OVER_OVERS = 1;
+export const SUPER_OVER_WICKETS = 2;
 
 export interface MatchRules {
-  /** Positive whole number. One innings per side. */
+  /** Positive whole number. One innings per side (plus Super Overs after a tie). */
   oversPerInnings: number;
-  /** Equal for both sides, 2 to 11. All out = playersPerSide - 1 wickets. */
-  playersPerSide: number;
   /**
    * ICC limited-overs playing condition (NOT an MCC Law): the delivery after any no-ball is a
    * free hit; it carries over if the free-hit delivery is a wide or no-ball.
@@ -23,7 +24,7 @@ export interface MatchRules {
 }
 
 export function defaultRules(): MatchRules {
-  return { oversPerInnings: 20, playersPerSide: 11, freeHitAfterNoBall: true, maxOversPerBowler: null };
+  return { oversPerInnings: 20, freeHitAfterNoBall: true, maxOversPerBowler: null };
 }
 
 /** A player as they were when the match was set up. Later renames do not change it. */
@@ -35,7 +36,10 @@ export interface LineupPlayer {
 export interface TeamLineup {
   teamId: string;
   name: string;
-  /** The playing lineup: the only players who can bat, bowl or field in the scoring. */
+  /**
+   * The playing lineup: the only players who can bat, bowl or field in the scoring. 2 to 11
+   * players; the two teams may have different numbers. All out = players.length - 1 wickets.
+   */
   players: LineupPlayer[];
   /**
    * Named substitutes (optional). They are listed on the scorecard but cannot bat, bowl or be
@@ -146,10 +150,43 @@ export interface AbandonEvent {
   type: 'abandon';
 }
 
+/** Law 25.4. hurt = retired not out, may resume later; out = retired out, counts as a wicket. */
+export type Retirement = 'hurt' | 'out';
+
+/** A batter at the crease retires between deliveries. A new batter takes their place. */
+export interface RetireEvent {
+  type: 'retire';
+  playerId: string;
+  retirement: Retirement;
+}
+
+/**
+ * Law 17.8: the bowler cannot finish the over (for example injured), so another bowler
+ * completes it. Before the first ball of an over it simply corrects the choice of bowler.
+ */
+export interface ReplaceBowlerEvent {
+  type: 'replaceBowler';
+  playerId: string;
+}
+
+/** The batting side cannot continue: everyone left to bat has retired hurt and cannot resume. */
+export interface EndInningsEvent {
+  type: 'endInnings';
+}
+
+/** The scores are level at the end of the match (or of a Super Over): play a Super Over. */
+export interface SuperOverEvent {
+  type: 'superOver';
+}
+
 export type MatchEvent =
   | InningsStartEvent
   | DeliveryEvent
   | NewBatterEvent
   | NewBowlerEvent
   | SwapBattersEvent
-  | AbandonEvent;
+  | AbandonEvent
+  | RetireEvent
+  | ReplaceBowlerEvent
+  | EndInningsEvent
+  | SuperOverEvent;

@@ -1,6 +1,9 @@
 // Statistics across several matches (career figures), built only from engine match states.
 // Averages live here because one innings is not a meaningful sample: within a match the
 // scorecard shows runs, balls, strike rate and economy instead.
+// Super Overs are not counted (as in official records). Retired hurt counts as not out and
+// retired out as a dismissal.
+import { mainInnings } from './awards';
 import type { MatchState } from './scoring';
 
 export interface BattingCareer {
@@ -53,7 +56,7 @@ export function playerCareer(playerId: string, states: readonly MatchState[]): P
 
   for (const state of states) {
     if (state.setup.teams.some((t) => t.players.some((p) => p.playerId === playerId))) matches += 1;
-    for (const inn of state.innings) {
+    for (const inn of mainInnings(state)) {
       const b = inn.batters.find((x) => x.playerId === playerId);
       if (b) {
         batting.innings += 1;

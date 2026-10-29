@@ -10,17 +10,25 @@ import type {
 } from '../../src/domain/match';
 import { computeMatchState, currentInnings, tryAddEvent, type MatchState } from '../../src/domain/scoring';
 
-export function makeSetup(opts: Partial<MatchRules> & { tossDecision?: 'bat' | 'bowl' } = {}): MatchSetup {
+export function makeSetup(
+  opts: Partial<MatchRules> & {
+    tossDecision?: 'bat' | 'bowl';
+    /** Lineup size of both teams (default 11). */
+    playersPerSide?: number;
+    /** Lineup size of team B, when it differs from team A. */
+    playersB?: number;
+  } = {},
+): MatchSetup {
   const rules: MatchRules = {
     oversPerInnings: opts.oversPerInnings ?? 2,
-    playersPerSide: opts.playersPerSide ?? 11,
     freeHitAfterNoBall: opts.freeHitAfterNoBall ?? true,
     maxOversPerBowler: opts.maxOversPerBowler ?? null,
   };
+  const size = opts.playersPerSide ?? 11;
   const team = (key: 'a' | 'b') => ({
     teamId: `team-${key}`,
     name: key === 'a' ? 'Alpha' : 'Bravo',
-    players: Array.from({ length: rules.playersPerSide }, (_, i) => ({
+    players: Array.from({ length: key === 'b' ? (opts.playersB ?? size) : size }, (_, i) => ({
       playerId: `${key}${i + 1}`,
       name: `${key.toUpperCase()}${i + 1}`,
     })),
@@ -66,6 +74,19 @@ export class TestMatch {
 
   bowler(playerId: string): this {
     return this.push({ type: 'newBowler', playerId });
+  }
+
+  retire(playerId: string, retirement: 'hurt' | 'out'): this {
+    return this.push({ type: 'retire', playerId, retirement });
+  }
+
+  replaceBowler(playerId: string): this {
+    return this.push({ type: 'replaceBowler', playerId });
+  }
+
+  /** Records any other event (swap, abandon, end of innings, Super Over, ...). */
+  event(event: MatchEvent): this {
+    return this.push(event);
   }
 
   /** Builds a delivery event from a partial input plus the current striker/non-striker/bowler. */

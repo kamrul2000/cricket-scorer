@@ -1,10 +1,11 @@
 // Full delivery editor: ball type, runs source, runs completed, boundary, and dismissal.
 // The preview is produced by the scoring engine itself, so what you see is what will be saved.
+// With `editIndex` it changes an earlier delivery instead (see tryEditDelivery).
 import { useMemo, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { DISMISSAL_LABELS, playerName } from '../../domain/format';
+import { DISMISSAL_LABELS, playerName, scoreText } from '../../domain/format';
 import {
   MAX_RUNS_PER_DELIVERY,
   type BallType,
@@ -16,7 +17,7 @@ import {
   type MatchEvent,
   type RunsFrom,
 } from '../../domain/match';
-import { currentInnings, tryAddEvent, type MatchState } from '../../domain/scoring';
+import { computeMatchState, currentInnings, tryAddEvent, tryEditDelivery, type MatchState } from '../../domain/scoring';
 import type { SubmitResult } from '../../hooks/useMatchScoring';
 import { colors, font, radius, spacing } from '../../theme/theme';
 import { Button } from '../Button';
@@ -54,25 +55,50 @@ function draftFor(preset: EditorPreset): Draft {
   return base;
 }
 
+/** The draft for a delivery that was already recorded (edit mode). */
+function draftFromEvent(e: DeliveryEvent): Draft {
+  const w = e.dismissal;
+  return {
+    ballType: e.ballType,
+    runsFrom: e.runsFrom ?? 'bat',
+    runs: e.runs,
+    boundary: e.boundary,
+    wicket: w ? w.kind : 'none',
+    fielderId: w && (w.kind === 'caught' || w.kind === 'stumped' || w.kind === 'runOut') ? w.fielderId : null,
+    runOutPlayerId: w?.kind === 'runOut' ? w.playerOutId : null,
+    runOutEnd: w?.kind === 'runOut' ? w.end : null,
+  };
+}
+
 interface Props {
   visible: boolean;
   preset: EditorPreset;
+  /** Change the delivery recorded at this event index instead of recording a new one. */
+  editIndex?: number;
   state: MatchState;
   events: readonly MatchEvent[];
   saving: boolean;
   onCancel: () => void;
-  onSubmit: (event: MatchEvent) => Promise<SubmitResult>;
+  onSubmit: (event: DeliveryEvent) => Promise<SubmitResult>;
 }
 
-/** Mount a fresh editor for each delivery; the draft starts from `preset` when it mounts. */
-export function DeliveryEditor({ visible, preset, state, events, saving, onCancel, onSubmit }: Props) {
-  const [draft, setDraft] = useState<Draft>(() => draftFor(preset));
+/** Mount a fresh editor for each delivery; the draft starts from `preset` (or the edited ball) when it mounts. */
+export function DeliveryEditor({ visible, preset, editIndex, state, events, saving, onCancel, onSubmit }: Props) {
+  const editing = editIndex !== undefined && events[editIndex]?.type === 'delivery' ? (events[editIndex] as DeliveryEvent) : null;
+  const [draft, setDraft] = useState<Draft>(() => (editing ? draftFromEvent(editing) : draftFor(preset)));
   const [submitError, setSubmitError] = useState<string | null>(null);
   // With edge-to-edge on, Android always draws this full-screen modal under the status bar and
   // the navigation buttons, so keep the title and the Save/Cancel buttons clear of them.
   const insets = useSafeAreaInsets();
 
-  const inn = currentInnings(state);
+  // The match as it was just before this delivery: the batters, bowler and free hit it had.
+  const before = useMemo(
+    () => (editIndex === undefined ? state : computeMatchState(state.setup, events.slice(0, editIndex))),
+    [editIndex, state, events],
+  );
+  const recordIndex = editIndex ?? events.length;
+  const original = editIndex === undefined ? null : state.innings.flatMap((i) => i.deliveries).find((d) => d.eventIndex === editIndex);
+  const inn = currentInnings(before);
   const set = (patch: Partial<Draft>) => {
     setSubmitError(null);
     setDraft((d) => ({ ...d, ...patch }));
@@ -113,11 +139,14 @@ export function DeliveryEditor({ visible, preset, state, events, saving, onCance
     return { event, problem: null };
   }, [draft, inn]);
 
-  const check = useMemo(() => (built.event ? tryAddEvent(state.setup, events, built.event) : null), [built.event, state.setup, events]);
+  const check = useMemo(() => {
+    if (!built.event) return null;
+    return editIndex === undefined ? tryAddEvent(state.setup, events, built.event) : tryEditDelivery(state.setup, events, editIndex, built.event);
+  }, [built.event, state.setup, events, editIndex]);
   const preview = useMemo(() => {
     if (!check?.ok) return null;
     const after = currentInnings(check.state);
-    const record = check.state.innings.flatMap((i) => i.deliveries).find((d) => d.eventIndex === events.length);
+    const record = check.state.innings.flatMap((i) => i.deliveries).find((d) => d.eventIndex === recordIndex);
     if (!record || !after) return null;
     const parts = [`Team +${record.totalRuns}`, `${playerName(state.setup, record.strikerId)} +${record.batterRuns}`];
     const ex = record.extras;
@@ -130,8 +159,14 @@ export function DeliveryEditor({ visible, preset, state, events, saving, onCance
     if (exParts.length) parts.push(`Extras ${exParts.join(', ')}`);
     parts.push(record.isLegalBall ? 'counts in the over' : 'does not count in the over');
     if (record.wicket) parts.push(`${playerName(state.setup, record.wicket.playerOutId)} OUT`);
+    if (editIndex !== undefined) {
+      // How the edit changes the score of that innings (later balls are replayed).
+      const was = state.innings[record.inningsIndex];
+      const now = check.state.innings[record.inningsIndex];
+      if (was && now) parts.push(`${now.battingTeam.name} ${scoreText(now)} (was ${scoreText(was)})`);
+    }
     return parts.join(' · ');
-  }, [check, events.length, state.setup]);
+  }, [check, recordIndex, state, editIndex]);
 
   if (!inn || !inn.strikerId || !inn.nonStrikerId) return null;
   const strikerName = playerName(state.setup, inn.strikerId);
@@ -160,7 +195,9 @@ export function DeliveryEditor({ visible, preset, state, events, saving, onCance
     <Modal visible={visible} animationType="slide" onRequestClose={onCancel}>
       <View style={styles.screen}>
         <View style={[styles.header, { paddingTop: spacing.md + insets.top }]}>
-          <Text style={styles.title}>Record delivery</Text>
+          <Text style={styles.title}>
+            {original ? `Edit delivery · over ${original.over + 1}${original.isLegalBall ? `, ball ${original.legalBallInOver}` : ''}` : 'Record delivery'}
+          </Text>
           <Text style={styles.subtitle}>
             {playerName(state.setup, inn.bowlerId)} to {strikerName}
             {inn.freeHitNext ? '  ·  FREE HIT' : ''}
@@ -275,7 +312,7 @@ export function DeliveryEditor({ visible, preset, state, events, saving, onCance
               <Button title="Cancel" variant="secondary" onPress={onCancel} disabled={saving} />
             </View>
             <View style={styles.flex}>
-              <Button title="Save" onPress={save} disabled={!check?.ok} loading={saving} />
+              <Button title={editIndex === undefined ? 'Save' : 'Save change'} onPress={save} disabled={!check?.ok} loading={saving} />
             </View>
           </View>
         </View>

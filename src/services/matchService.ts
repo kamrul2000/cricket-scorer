@@ -4,16 +4,18 @@
 // 3) only then does the caller get the new state to display.
 import { awardsError, type MatchAwards } from '../domain/awards';
 import { matchSummary } from '../domain/format';
-import type { InningsStartEvent, MatchEvent, MatchSetup } from '../domain/match';
+import type { DeliveryEvent, InningsStartEvent, MatchEvent, MatchSetup } from '../domain/match';
 import {
   computeMatchState,
   currentInnings,
   eventsAfterUndo,
   ScoringError,
   tryAddEvent,
+  tryEditDelivery,
   type MatchState,
 } from '../domain/scoring';
 import type { MatchDetails, MatchRepository, MatchRowUpdate, StoredMatch } from '../data/matchRepository';
+import type { EventToStore } from '../data/matchEventRows';
 import { FORMAT_MAX_LENGTH, VENUE_MAX_LENGTH } from '../domain/schedule';
 import { RepositoryError } from '../data/RepositoryError';
 import { takeFault } from './faultInjection';
@@ -33,6 +35,21 @@ export interface LoadedMatch {
 /** The match-list columns, always recomputed from the scoring engine's state. */
 export function rowUpdate(state: MatchState): MatchRowUpdate {
   return { status: state.result ? 'completed' : 'inProgress', summary: matchSummary(state) };
+}
+
+/**
+ * What the repository stores for each of `events` (from `from` on), given the engine's state
+ * after all of them: the innings each event belongs to and, for deliveries, their record.
+ */
+export function storableEvents(state: MatchState, events: readonly MatchEvent[], from = 0): EventToStore[] {
+  const records = new Map(state.innings.flatMap((inn) => inn.deliveries).map((r) => [r.eventIndex, r]));
+  const items: EventToStore[] = [];
+  let inningsIndex = -1;
+  events.forEach((event, seq) => {
+    if (event.type === 'inningsStart') inningsIndex += 1;
+    if (seq >= from) items.push({ event, inningsIndex: Math.max(0, inningsIndex), record: records.get(seq) ?? null });
+  });
+  return items;
 }
 
 /** Replays a stored match through the scoring engine. Throws RepositoryError('DAMAGED') if it cannot. */
@@ -99,6 +116,18 @@ export function createMatchService(matches: MatchRepository) {
         event.type === 'delivery' ? (inn.deliveries.find((d) => d.eventIndex === seq) ?? null) : null;
       await matches.appendEvent(match.id, seq, { event, inningsIndex: inn.index, record }, rowUpdate(state), takeFault());
       return { ...match, events: [...match.events, event], state };
+    },
+
+    /**
+     * Changes what was recorded for an earlier delivery and saves the replayed history in one
+     * transaction. Throws ScoringError if the edit does not fit (nothing is written).
+     */
+    async editDelivery(match: LoadedMatch, index: number, event: DeliveryEvent): Promise<LoadedMatch> {
+      const checked = tryEditDelivery(match.setup, match.events, index, event);
+      if (!checked.ok) throw new ScoringError(checked.error);
+      const items = storableEvents(checked.state, checked.events, index);
+      await matches.replaceEventsFrom(match.id, index, match.events.length, items, rowUpdate(checked.state), takeFault());
+      return { ...match, events: checked.events, state: checked.state };
     },
 
     /** Removes the latest event durably. */

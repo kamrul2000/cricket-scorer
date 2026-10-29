@@ -216,6 +216,60 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE matches ADD COLUMN format_name TEXT NOT NULL DEFAULT '' CHECK (length(format_name) <= 40);
     `,
   },
+  {
+    version: 7,
+    description: 'match events: retirements, bowler replacement, ending an innings, Super Overs',
+    // Rebuilt like version 3 to change CHECK constraints: four new event types, innings 2 and
+    // up (Super Overs), and the new `retirement` column. Existing rows are copied unchanged.
+    // Since this version, matches.players_per_side is the larger lineup size, for information
+    // only: the two lineups may differ and the scoring uses the lineups themselves.
+    sql: `
+      CREATE TABLE match_events_v7 (
+        match_id        TEXT NOT NULL REFERENCES matches (id) ON DELETE CASCADE,
+        seq             INTEGER NOT NULL CHECK (seq >= 0),
+        type            TEXT NOT NULL CHECK (type IN ('inningsStart', 'delivery', 'newBatter', 'newBowler', 'swapBatters', 'abandon',
+                                                      'retire', 'replaceBowler', 'endInnings', 'superOver')),
+        innings_index   INTEGER NOT NULL CHECK (innings_index >= 0),
+        striker_id      TEXT,
+        non_striker_id  TEXT,
+        bowler_id       TEXT,
+        player_id       TEXT,
+        ball_type       TEXT CHECK (ball_type IN ('fair', 'wide', 'noBall')),
+        runs_from       TEXT CHECK (runs_from IN ('bat', 'byes', 'legByes')),
+        runs_completed  INTEGER CHECK (runs_completed >= 0),
+        boundary        TEXT CHECK (boundary IN ('none', 'four', 'six', 'overthrowFour')),
+        dismissal_kind  TEXT CHECK (dismissal_kind IN ('bowled', 'caught', 'lbw', 'stumped', 'hitWicket', 'runOut')),
+        dismissed_player_id TEXT,
+        run_out_end     TEXT CHECK (run_out_end IN ('striker', 'nonStriker')),
+        fielder_id      TEXT,
+        retirement      TEXT CHECK (retirement IN ('hurt', 'out')),
+        batter_runs     INTEGER,
+        extras_wides    INTEGER,
+        extras_no_balls INTEGER,
+        extras_byes     INTEGER,
+        extras_leg_byes INTEGER,
+        total_runs      INTEGER,
+        bowler_runs     INTEGER,
+        is_legal_ball   INTEGER CHECK (is_legal_ball IN (0, 1)),
+        is_ball_faced   INTEGER CHECK (is_ball_faced IN (0, 1)),
+        is_free_hit     INTEGER CHECK (is_free_hit IN (0, 1)),
+        wicket_credited_to_bowler INTEGER CHECK (wicket_credited_to_bowler IN (0, 1)),
+        created_at      TEXT NOT NULL,
+        PRIMARY KEY (match_id, seq)
+      );
+      INSERT INTO match_events_v7 (match_id, seq, type, innings_index, striker_id, non_striker_id, bowler_id, player_id,
+          ball_type, runs_from, runs_completed, boundary, dismissal_kind, dismissed_player_id, run_out_end, fielder_id,
+          batter_runs, extras_wides, extras_no_balls, extras_byes, extras_leg_byes, total_runs, bowler_runs,
+          is_legal_ball, is_ball_faced, is_free_hit, wicket_credited_to_bowler, created_at)
+        SELECT match_id, seq, type, innings_index, striker_id, non_striker_id, bowler_id, player_id,
+          ball_type, runs_from, runs_completed, boundary, dismissal_kind, dismissed_player_id, run_out_end, fielder_id,
+          batter_runs, extras_wides, extras_no_balls, extras_byes, extras_leg_byes, total_runs, bowler_runs,
+          is_legal_ball, is_ball_faced, is_free_hit, wicket_credited_to_bowler, created_at
+        FROM match_events;
+      DROP TABLE match_events;
+      ALTER TABLE match_events_v7 RENAME TO match_events;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

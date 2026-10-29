@@ -6,10 +6,15 @@
 import {
   BALLS_PER_OVER,
   MAX_RUNS_PER_DELIVERY,
+  SUPER_OVER_OVERS,
+  SUPER_OVER_WICKETS,
   type DeliveryEvent,
+  type DeliveryInput,
   type DismissalKind,
   type MatchEvent,
   type MatchSetup,
+  type RetireEvent,
+  type Retirement,
   type TeamLineup,
 } from './match';
 import { canBowlRemainingOvers, firstBattingTeamIndex, validateMatchSetup } from './setupValidation';
@@ -24,20 +29,23 @@ export interface Extras {
   legByes: number;
 }
 
+/** How a batter was out: a dismissal on a delivery, or retired out (Law 25.4.3). */
+export type WicketKind = DismissalKind | 'retiredOut';
+
 export interface WicketRecord {
-  kind: DismissalKind;
+  kind: WicketKind;
   playerOutId: string;
   fielderId: string | null;
-  /** The bowler of the delivery (recorded for every wicket). */
-  bowlerId: string;
-  /** Bowled, caught, LBW, stumped and hit wicket are credited to the bowler; run out is not (Law 38.6). */
+  /** The bowler of the delivery. null for retired out, which happens between deliveries. */
+  bowlerId: string | null;
+  /** Bowled, caught, LBW, stumped and hit wicket are credited to the bowler; run out and retired out are not. */
   creditedToBowler: boolean;
 }
 
 /** Everything derived from one delivery. */
 export interface DeliveryRecord {
   eventIndex: number;
-  inningsIndex: 0 | 1;
+  inningsIndex: number;
   /** 0-based over number this delivery belongs to. */
   over: number;
   /** Fair deliveries bowled in this over, including this one if it is fair. */
@@ -69,6 +77,8 @@ export interface BatterStats {
   fours: number;
   sixes: number;
   wicket: WicketRecord | null;
+  /** Retired hurt and not batting now. Cleared when they resume their innings. */
+  retiredHurt: boolean;
 }
 
 export interface BowlerStats {
@@ -91,7 +101,7 @@ export interface FallOfWicket {
 
 /** Two batters batting together, from when the second of them arrived until a wicket. */
 export interface Partnership {
-  /** 1 = the opening partnership, 2 = after the first wicket, ... */
+  /** The wicket it is for: 1 = the opening partnership, 2 = after the first wicket, ... */
   number: number;
   batterIds: [string, string];
   /** Runs off the bat by each batter in `batterIds` order while they batted together. */
@@ -102,13 +112,16 @@ export interface Partnership {
   balls: number;
   /** Ended by a wicket. false = unbroken (still together, or not out at the end). */
   broken: boolean;
+  /** Ended because one of the pair retired hurt (no wicket fell). */
+  retired: boolean;
 }
 
 /** One over: runs and wickets in it, and the team score at its end (or now, if unfinished). */
 export interface OverSummary {
   /** 0-based over number. */
   over: number;
-  bowlerId: string;
+  /** Who bowled in this over: one bowler, or more if a bowler was replaced during it. */
+  bowlerIds: string[];
   runs: number;
   wickets: number;
   legalBalls: number;
@@ -117,19 +130,36 @@ export interface OverSummary {
   complete: boolean;
 }
 
+/** A batter retiring between deliveries (Law 25.4). */
+export interface RetirementRecord {
+  eventIndex: number;
+  playerId: string;
+  retirement: Retirement;
+  teamRuns: number;
+  wickets: number;
+  legalBalls: number;
+}
+
 export type InningsEndReason = 'overs' | 'allOut' | 'targetReached' | 'abandoned';
 
 export interface InningsState {
-  index: 0 | 1;
+  /** 0 and 1 are the main innings; 2 and 3 the first Super Over; 4 and 5 the second; ... */
+  index: number;
+  /** null for the main innings; 1, 2, ... for each Super Over. */
+  superOver: number | null;
   battingTeam: TeamLineup;
   bowlingTeam: TeamLineup;
-  /** Runs needed to win (second innings only). */
+  /** Overs available: the match overs, or 1 in a Super Over. */
+  oversLimit: number;
+  /** Wickets that end the innings: the batting lineup size - 1, or at most 2 in a Super Over. */
+  wicketsLimit: number;
+  /** Runs needed to win (second innings of the match or of a Super Over only). */
   target: number | null;
   runs: number;
   wickets: number;
   legalBalls: number;
   extras: Extras;
-  /** In batting order (order of arrival at the crease). */
+  /** In batting order (order of first arrival at the crease). */
   batters: BatterStats[];
   /** In order of first bowling. */
   bowlers: BowlerStats[];
@@ -138,7 +168,10 @@ export interface InningsState {
   nonStrikerId: string | null;
   /** Bowler of the current over; null between overs. */
   bowlerId: string | null;
-  previousOverBowlerId: string | null;
+  /** Everyone who bowled (part of) the previous over: none of them may bowl the next one (Law 17.6). */
+  previousOverBowlerIds: string[];
+  /** Bowlers of the current over so far, in order (more than one after a mid-over replacement). */
+  currentOverBowlerIds: string[];
   deliveries: DeliveryRecord[];
   fallOfWickets: FallOfWicket[];
   /** In order; the last one is the current pair while the innings is in progress. */
@@ -147,16 +180,23 @@ export interface InningsState {
   overs: OverSummary[];
   /** Scorer corrections that swapped the batters' ends, with the legal-ball count at the time. */
   strikeSwaps: { eventIndex: number; legalBalls: number }[];
+  retirements: RetirementRecord[];
+  /** The batter whose retirement left the current vacancy: they may not fill it themselves (Law 25.4.2). */
+  vacancyLeftBy: string | null;
+  /** Players who may not bat in this Super Over: they were dismissed in an earlier one. */
+  ineligibleBatterIds: string[];
+  /** Players who may not bowl in this Super Over: they bowled in the previous one. */
+  ineligibleBowlerIds: string[];
   /** The next delivery is a free hit. */
   freeHitNext: boolean;
   completed: boolean;
   endReason: InningsEndReason | null;
-  /** Runs debited to the current bowler in the current over (for maidens). */
+  /** Runs debited to the bowlers in the current over (for maidens). */
   currentOverBowlerRuns: number;
 }
 
 export type NextAction =
-  | { type: 'selectOpeners'; inningsIndex: 0 | 1 }
+  | { type: 'selectOpeners'; inningsIndex: number }
   | { type: 'selectBatter' }
   | { type: 'selectBowler' }
   | { type: 'delivery' }
@@ -167,7 +207,11 @@ export type MatchResult =
   /** The match was abandoned before a result (see the 'abandon' event). */
   | { type: 'noResult' }
   | { type: 'winByRuns'; winnerTeamId: string; runs: number }
-  | { type: 'winByWickets'; winnerTeamId: string; wickets: number; ballsRemaining: number };
+  | { type: 'winByWickets'; winnerTeamId: string; wickets: number; ballsRemaining: number }
+  /** The match was tied and so was the latest Super Over (another one may be played). */
+  | { type: 'superOverTie'; superOvers: number }
+  /** The match was tied and a Super Over decided the winner. */
+  | { type: 'superOverWin'; winnerTeamId: string; superOvers: number };
 
 export interface MatchState {
   setup: MatchSetup;
@@ -191,10 +235,7 @@ export class ScoringError extends Error {
 
 /** Replays `events` from the start. Throws ScoringError if any event is invalid. */
 export function computeMatchState(setup: MatchSetup, events: readonly MatchEvent[]): MatchState {
-  const setupErrors = validateMatchSetup(setup);
-  if (setupErrors.length > 0) throw new ScoringError(`Invalid match setup: ${setupErrors[0]}`);
-
-  const state: MatchState = { setup, innings: [], next: { type: 'selectOpeners', inningsIndex: 0 }, result: null };
+  const state = initialState(setup);
   events.forEach((event, i) => {
     const error = applyEvent(state, event, i);
     if (error) throw new ScoringError(error, i);
@@ -216,6 +257,60 @@ export function tryAddEvent(
   }
 }
 
+/**
+ * Replaces what was recorded for the delivery at `index` and replays the rest of the match.
+ * Later deliveries keep their runs, extras and wickets, but their striker, non-striker and
+ * bowler are taken from the corrected match, because an edit can change who is on strike.
+ * Fails (and changes nothing) when a later action no longer fits, for example a new batter
+ * chosen after a wicket that the edit removes.
+ */
+export function tryEditDelivery(
+  setup: MatchSetup,
+  events: readonly MatchEvent[],
+  index: number,
+  input: DeliveryInput,
+): { ok: true; events: MatchEvent[]; state: MatchState } | { ok: false; error: string } {
+  const original = events[index];
+  if (!original || original.type !== 'delivery') return { ok: false, error: 'Only a delivery can be edited.' };
+  let state: MatchState;
+  try {
+    state = initialState(setup);
+  } catch (e) {
+    if (e instanceof ScoringError) return { ok: false, error: e.message };
+    throw e;
+  }
+  const edited: MatchEvent[] = [];
+  for (let i = 0; i < events.length; i++) {
+    let event: MatchEvent = events[i];
+    if (i === index) {
+      event = {
+        ...original,
+        ballType: input.ballType,
+        runsFrom: input.runsFrom,
+        runs: input.runs,
+        boundary: input.boundary,
+        dismissal: input.dismissal,
+      };
+    }
+    if (i >= index && event.type === 'delivery') {
+      const inn = currentInnings(state);
+      if (state.next.type === 'delivery' && inn) {
+        event = { ...event, strikerId: inn.strikerId!, nonStrikerId: inn.nonStrikerId!, bowlerId: inn.bowlerId! };
+      }
+    }
+    const error = applyEvent(state, event, i);
+    if (error) {
+      if (i <= index) return { ok: false, error };
+      return {
+        ok: false,
+        error: `This change does not fit what was recorded after it (saved action ${i + 1}: ${error}) To change it, undo back to this ball and score again.`,
+      };
+    }
+    edited.push(event);
+  }
+  return { ok: true, events: edited, state };
+}
+
 /** Undo = remove the latest event. Returns null when there is nothing to undo. */
 export function eventsAfterUndo(events: readonly MatchEvent[]): MatchEvent[] | null {
   return events.length === 0 ? null : events.slice(0, -1);
@@ -225,12 +320,11 @@ export function currentInnings(state: MatchState): InningsState | null {
   return state.innings.length ? state.innings[state.innings.length - 1] : null;
 }
 
-/** Players who may be chosen as the next batter. */
+/** Players who may be chosen as the next batter: those yet to bat, and retired-hurt batters. */
 export function availableBatters(state: MatchState): string[] {
   const inn = currentInnings(state);
   if (!inn || state.next.type !== 'selectBatter') return [];
-  const batted = new Set(inn.batters.map((b) => b.playerId));
-  return inn.battingTeam.players.map((p) => p.playerId).filter((id) => !batted.has(id));
+  return batterCandidates(inn);
 }
 
 /** Bowlers who may bowl the next over, with the reason others are not allowed. */
@@ -243,8 +337,67 @@ export function bowlerOptions(state: MatchState): { playerId: string; allowed: b
   });
 }
 
+/** Who may take over the current over from the current bowler (see ReplaceBowlerEvent). */
+export function replacementBowlerOptions(state: MatchState): { playerId: string; allowed: boolean; reason: string | null }[] {
+  const inn = currentInnings(state);
+  if (!inn || !canReplaceBowler(state)) return [];
+  return inn.bowlingTeam.players.map((p) => {
+    const reason = replacementNotAllowedReason(state, inn, p.playerId);
+    return { playerId: p.playerId, allowed: reason === null, reason };
+  });
+}
+
+/** True once a ball (legal or not) has been bowled in the current over. */
+export function overInProgress(inn: InningsState): boolean {
+  const last = inn.overs[inn.overs.length - 1];
+  return !!last && !last.complete && last.over === Math.floor(inn.legalBalls / BALLS_PER_OVER);
+}
+
+/** Swapping is allowed whenever both batters are at the crease in an unfinished innings. */
+export function canSwapBatters(state: MatchState): boolean {
+  const inn = currentInnings(state);
+  return (
+    !!inn &&
+    !inn.completed &&
+    inn.strikerId !== null &&
+    inn.nonStrikerId !== null &&
+    (state.next.type === 'delivery' || state.next.type === 'selectBowler')
+  );
+}
+
+/** A batter may retire between deliveries, while both batters are at the crease (Law 25.4). */
+export function canRetire(state: MatchState): boolean {
+  return canSwapBatters(state);
+}
+
+/** The bowler can be replaced while a delivery is expected (Law 17.8). */
+export function canReplaceBowler(state: MatchState): boolean {
+  const inn = currentInnings(state);
+  return !!inn && !inn.completed && state.next.type === 'delivery' && inn.bowlerId !== null;
+}
+
+/** The innings can be closed when a batter is needed and only retired-hurt batters are left. */
+export function canEndInnings(state: MatchState): boolean {
+  const inn = currentInnings(state);
+  if (!inn || state.next.type !== 'selectBatter') return false;
+  return batterCandidates(inn).every((id) => inn.batters.some((b) => b.playerId === id && b.retiredHurt));
+}
+
+/** A Super Over can start when the match (or the latest Super Over) has just ended level. */
+export function canStartSuperOver(state: MatchState): boolean {
+  const r = state.result;
+  if (!r || (r.type !== 'tie' && r.type !== 'superOverTie')) return false;
+  return state.innings.length % 2 === 0 && !state.innings.some((inn) => inn.endReason === 'abandoned');
+}
+
 // ---------------------------------------------------------------------------------------------
 // Event application (mutates `state`; returns an error message instead of applying if invalid)
+
+function initialState(setup: MatchSetup): MatchState {
+  const setupErrors = validateMatchSetup(setup);
+  if (setupErrors.length > 0) throw new ScoringError(`Invalid match setup: ${setupErrors[0]}`);
+  return { setup, innings: [], next: { type: 'selectOpeners', inningsIndex: 0 }, result: null };
+}
 
 function applyEvent(state: MatchState, event: MatchEvent, eventIndex: number): string | null {
   switch (event.type) {
@@ -260,21 +413,17 @@ function applyEvent(state: MatchState, event: MatchEvent, eventIndex: number): s
       return applySwapBatters(state, eventIndex);
     case 'abandon':
       return applyAbandon(state);
+    case 'retire':
+      return applyRetire(state, event, eventIndex);
+    case 'replaceBowler':
+      return applyReplaceBowler(state, event.playerId);
+    case 'endInnings':
+      return applyEndInnings(state);
+    case 'superOver':
+      return applySuperOver(state);
     default:
       return 'Unknown event type.';
   }
-}
-
-/** Swapping is allowed whenever both batters are at the crease in an unfinished innings. */
-export function canSwapBatters(state: MatchState): boolean {
-  const inn = currentInnings(state);
-  return (
-    !!inn &&
-    !inn.completed &&
-    inn.strikerId !== null &&
-    inn.nonStrikerId !== null &&
-    (state.next.type === 'delivery' || state.next.type === 'selectBowler')
-  );
 }
 
 function applySwapBatters(state: MatchState, eventIndex: number): string | null {
@@ -288,14 +437,26 @@ function applySwapBatters(state: MatchState, eventIndex: number): string | null 
 
 function applyAbandon(state: MatchState): string | null {
   if (state.result || state.next.type === 'matchComplete') return 'The match is already complete.';
+  // Once both main innings are complete the match was tied, and a Super Over that cannot be
+  // finished leaves it tied.
+  const inSuperOver = state.innings.length >= 2 && state.innings[1].completed;
   const inn = currentInnings(state);
   if (inn && !inn.completed) {
     inn.completed = true;
     inn.endReason = 'abandoned';
     inn.freeHitNext = false;
   }
-  state.result = { type: 'noResult' };
+  state.result = inSuperOver ? { type: 'tie' } : { type: 'noResult' };
   state.next = { type: 'matchComplete' };
+  return null;
+}
+
+function applySuperOver(state: MatchState): string | null {
+  if (!canStartSuperOver(state)) {
+    return 'A Super Over can only be played when the scores are level at the end of the match.';
+  }
+  state.result = null;
+  state.next = { type: 'selectOpeners', inningsIndex: state.innings.length };
   return null;
 }
 
@@ -319,13 +480,14 @@ const nameIn = (team: TeamLineup, id: string) =>
   team.players.find((p) => p.playerId === id)?.name ?? 'Unknown player';
 const zeroExtras = (): Extras => ({ wides: 0, noBalls: 0, byes: 0, legByes: 0 });
 export const extrasTotal = (e: Extras) => e.wides + e.noBalls + e.byes + e.legByes;
+const last = <T>(list: readonly T[]): T | undefined => list[list.length - 1];
 
 function newPartnership(number: number, firstId: string, secondId: string): Partnership {
-  return { number, batterIds: [firstId, secondId], batterRuns: [0, 0], runs: 0, balls: 0, broken: false };
+  return { number, batterIds: [firstId, secondId], batterRuns: [0, 0], runs: 0, balls: 0, broken: false, retired: false };
 }
 
 function newBatter(team: TeamLineup, id: string): BatterStats {
-  return { playerId: id, name: nameIn(team, id), runs: 0, ballsFaced: 0, fours: 0, sixes: 0, wicket: null };
+  return { playerId: id, name: nameIn(team, id), runs: 0, ballsFaced: 0, fours: 0, sixes: 0, wicket: null, retiredHurt: false };
 }
 
 function ensureBowler(inn: InningsState, id: string): BowlerStats {
@@ -346,25 +508,88 @@ function ensureBowler(inn: InningsState, id: string): BowlerStats {
   return b;
 }
 
-function applyInningsStart(state: MatchState, strikerId: string, nonStrikerId: string, bowlerId: string): string | null {
-  if (state.next.type !== 'selectOpeners') return needMessage(state.next);
-  const { setup } = state;
-  const firstIdx = firstBattingTeamIndex(setup);
+/** Who may fill a vacancy at the crease (in lineup order). */
+function batterCandidates(inn: InningsState): string[] {
+  const atCrease = new Set([inn.strikerId, inn.nonStrikerId]);
+  return inn.battingTeam.players
+    .map((p) => p.playerId)
+    .filter((id) => {
+      if (atCrease.has(id) || id === inn.vacancyLeftBy || inn.ineligibleBatterIds.includes(id)) return false;
+      const b = inn.batters.find((x) => x.playerId === id);
+      return !b || b.retiredHurt;
+    });
+}
+
+export interface UpcomingInnings {
+  index: number;
+  superOver: number | null;
+  battingTeam: TeamLineup;
+  bowlingTeam: TeamLineup;
+  ineligibleBatterIds: string[];
+  ineligibleBowlerIds: string[];
+}
+
+/**
+ * The innings about to start (when openers are needed). Main match: the toss decides who bats.
+ * Each Super Over is opened by the side that batted second in the match or previous Super Over.
+ * ICC Super Over conditions: a player dismissed in any earlier Super Over may not bat, and a
+ * bowler of the previous Super Over may not bowl.
+ */
+export function upcomingInnings(state: MatchState): UpcomingInnings | null {
+  if (state.next.type !== 'selectOpeners') return null;
   const index = state.next.inningsIndex;
-  const battingTeam = setup.teams[index === 0 ? firstIdx : 1 - firstIdx];
-  const bowlingTeam = setup.teams[index === 0 ? 1 - firstIdx : firstIdx];
+  const { setup } = state;
+  let battingTeam: TeamLineup;
+  let bowlingTeam: TeamLineup;
+  if (index === 0) {
+    const firstIdx = firstBattingTeamIndex(setup);
+    [battingTeam, bowlingTeam] = [setup.teams[firstIdx], setup.teams[1 - firstIdx]];
+  } else {
+    const previous = state.innings[index - 1];
+    [battingTeam, bowlingTeam] =
+      index % 2 === 0 ? [previous.battingTeam, previous.bowlingTeam] : [previous.bowlingTeam, previous.battingTeam];
+  }
+  const superOver = index < 2 ? null : Math.floor(index / 2);
+  const earlierSuperOvers = state.innings.filter((i) => i.superOver !== null);
+  return {
+    index,
+    superOver,
+    battingTeam,
+    bowlingTeam,
+    ineligibleBatterIds: earlierSuperOvers.flatMap((i) => i.batters.filter((b) => b.wicket).map((b) => b.playerId)),
+    ineligibleBowlerIds:
+      superOver !== null && superOver > 1
+        ? earlierSuperOvers.filter((i) => i.superOver === superOver - 1).flatMap((i) => i.bowlers.map((b) => b.playerId))
+        : [],
+  };
+}
+
+function applyInningsStart(state: MatchState, strikerId: string, nonStrikerId: string, bowlerId: string): string | null {
+  const upcoming = upcomingInnings(state);
+  if (!upcoming) return needMessage(state.next);
+  const { index, superOver, battingTeam, bowlingTeam, ineligibleBatterIds, ineligibleBowlerIds } = upcoming;
 
   if (!inLineup(battingTeam, strikerId) || !inLineup(battingTeam, nonStrikerId)) {
     return `Opening batters must be in the ${battingTeam.name} lineup.`;
   }
   if (strikerId === nonStrikerId) return 'Choose two different opening batters.';
+  for (const id of [strikerId, nonStrikerId]) {
+    if (ineligibleBatterIds.includes(id)) return `${nameIn(battingTeam, id)} was dismissed in an earlier Super Over and cannot bat.`;
+  }
   if (!inLineup(bowlingTeam, bowlerId)) return `The bowler must be in the ${bowlingTeam.name} lineup.`;
+  if (ineligibleBowlerIds.includes(bowlerId)) {
+    return `${nameIn(bowlingTeam, bowlerId)} bowled in the previous Super Over and cannot bowl in this one.`;
+  }
 
   const inn: InningsState = {
     index,
+    superOver,
     battingTeam,
     bowlingTeam,
-    target: index === 1 ? state.innings[0].runs + 1 : null,
+    oversLimit: superOver === null ? state.setup.rules.oversPerInnings : SUPER_OVER_OVERS,
+    wicketsLimit:
+      superOver === null ? battingTeam.players.length - 1 : Math.min(SUPER_OVER_WICKETS, battingTeam.players.length - 1),
+    target: index % 2 === 1 ? state.innings[index - 1].runs + 1 : null,
     runs: 0,
     wickets: 0,
     legalBalls: 0,
@@ -374,12 +599,17 @@ function applyInningsStart(state: MatchState, strikerId: string, nonStrikerId: s
     strikerId,
     nonStrikerId,
     bowlerId,
-    previousOverBowlerId: null,
+    previousOverBowlerIds: [],
+    currentOverBowlerIds: [bowlerId],
     deliveries: [],
     fallOfWickets: [],
     partnerships: [newPartnership(1, strikerId, nonStrikerId)],
     overs: [],
     strikeSwaps: [],
+    retirements: [],
+    vacancyLeftBy: null,
+    ineligibleBatterIds,
+    ineligibleBowlerIds,
     freeHitNext: false,
     completed: false,
     endReason: null,
@@ -394,42 +624,93 @@ function applyInningsStart(state: MatchState, strikerId: string, nonStrikerId: s
 function applyNewBatter(state: MatchState, playerId: string): string | null {
   if (state.next.type !== 'selectBatter') return needMessage(state.next);
   const inn = currentInnings(state)!;
+  const name = nameIn(inn.battingTeam, playerId);
   if (!inLineup(inn.battingTeam, playerId)) return `The batter must be in the ${inn.battingTeam.name} lineup.`;
-  if (inn.batters.some((b) => b.playerId === playerId)) return `${nameIn(inn.battingTeam, playerId)} has already batted.`;
+  if (inn.ineligibleBatterIds.includes(playerId)) return `${name} was dismissed in an earlier Super Over and cannot bat.`;
+  if (playerId === inn.vacancyLeftBy) {
+    return `${name} has just retired, so cannot take their own place. They can resume when another batter is needed (Law 25.4.2).`;
+  }
+  const returning = inn.batters.find((b) => b.playerId === playerId);
+  if (returning && !returning.retiredHurt) return `${name} has already batted.`;
 
-  // The batter who survived the last wicket forms a new partnership with the new batter.
+  // The batter who stayed in forms a new partnership with the new batter.
   const survivorId = inn.strikerId ?? inn.nonStrikerId!;
-  inn.partnerships.push(newPartnership(inn.partnerships.length + 1, survivorId, playerId));
-  inn.batters.push(newBatter(inn.battingTeam, playerId));
+  inn.partnerships.push(newPartnership(inn.wickets + 1, survivorId, playerId));
+  if (returning) returning.retiredHurt = false; // resumes their innings (Law 25.4.2)
+  else inn.batters.push(newBatter(inn.battingTeam, playerId));
   if (inn.strikerId === null) inn.strikerId = playerId;
   else inn.nonStrikerId = playerId;
+  inn.vacancyLeftBy = null;
   state.next = nextWithinInnings(inn);
   return null;
 }
 
-function completedOversBy(inn: InningsState, playerId: string): number {
-  const b = inn.bowlers.find((x) => x.playerId === playerId);
-  return b ? Math.floor(b.legalBalls / BALLS_PER_OVER) : 0;
+/** Whole overs a bowler may still bowl under the competition limit, after `extraBalls` more. */
+function wholeOversLeft(inn: InningsState, playerId: string, max: number, extraBalls: number): number {
+  const balls = inn.bowlers.find((x) => x.playerId === playerId)?.legalBalls ?? 0;
+  return Math.max(0, Math.floor((max * BALLS_PER_OVER - balls - extraBalls) / BALLS_PER_OVER));
+}
+
+/**
+ * Could the remaining overs of the innings still be bowled under the competition limit if
+ * `playerId` bowls `balls` more now, with `blockedIds` unable to bowl the next over?
+ */
+function canFinishInnings(state: MatchState, inn: InningsState, playerId: string, balls: number, blockedIds: string[]): boolean {
+  const max = state.setup.rules.maxOversPerBowler;
+  if (max === null) return true;
+  const remainingAfter = inn.oversLimit - Math.floor(inn.legalBalls / BALLS_PER_OVER) - 1;
+  const left = new Map<string, number>();
+  for (const p of inn.bowlingTeam.players) {
+    left.set(p.playerId, wholeOversLeft(inn, p.playerId, max, p.playerId === playerId ? balls : 0));
+  }
+  return canBowlRemainingOvers(remainingAfter, left, blockedIds);
 }
 
 function bowlerNotAllowedReason(state: MatchState, inn: InningsState, playerId: string): string | null {
   const name = nameIn(inn.bowlingTeam, playerId);
   if (!inLineup(inn.bowlingTeam, playerId)) return `The bowler must be in the ${inn.bowlingTeam.name} lineup.`;
-  if (playerId === inn.previousOverBowlerId) {
-    return `${name} bowled the previous over. A bowler cannot bowl consecutive overs (Law 17.6).`;
+  if (inn.ineligibleBowlerIds.includes(playerId)) return `${name} bowled in the previous Super Over.`;
+  if (inn.previousOverBowlerIds.includes(playerId)) {
+    const what = inn.previousOverBowlerIds.length > 1 ? 'bowled part of the previous over' : 'bowled the previous over';
+    return `${name} ${what}. A bowler cannot bowl consecutive overs (Law 17.6).`;
   }
   const max = state.setup.rules.maxOversPerBowler;
   if (max !== null) {
-    if (completedOversBy(inn, playerId) >= max) return `${name} has bowled the maximum ${max} overs.`;
-    // Would choosing this bowler make it impossible to finish the innings?
-    const totalOvers = state.setup.rules.oversPerInnings;
-    const remainingAfter = totalOvers - Math.floor(inn.legalBalls / BALLS_PER_OVER) - 1;
-    const left = new Map<string, number>();
-    for (const p of inn.bowlingTeam.players) {
-      const used = completedOversBy(inn, p.playerId) + (p.playerId === playerId ? 1 : 0);
-      left.set(p.playerId, Math.max(0, max - used));
+    if (wholeOversLeft(inn, playerId, max, 0) < 1) {
+      const balls = inn.bowlers.find((x) => x.playerId === playerId)?.legalBalls ?? 0;
+      return balls >= max * BALLS_PER_OVER
+        ? `${name} has bowled the maximum ${max} overs.`
+        : `${name} cannot bowl another full over without going over the maximum of ${max} overs.`;
     }
-    if (!canBowlRemainingOvers(remainingAfter, left, playerId)) {
+    if (!canFinishInnings(state, inn, playerId, BALLS_PER_OVER, [playerId])) {
+      return `Choosing ${name} would leave too few eligible bowlers to finish the innings under the ${max}-over limit.`;
+    }
+  }
+  return null;
+}
+
+function replacementNotAllowedReason(state: MatchState, inn: InningsState, playerId: string): string | null {
+  // Before the first ball of the over this only corrects the choice of bowler.
+  if (!overInProgress(inn)) {
+    if (playerId === inn.bowlerId) return `${nameIn(inn.bowlingTeam, playerId)} is already bowling.`;
+    return bowlerNotAllowedReason(state, inn, playerId);
+  }
+  const name = nameIn(inn.bowlingTeam, playerId);
+  if (!inLineup(inn.bowlingTeam, playerId)) return `The bowler must be in the ${inn.bowlingTeam.name} lineup.`;
+  if (playerId === inn.bowlerId) return `${name} is already bowling.`;
+  if (inn.currentOverBowlerIds.includes(playerId)) return `${name} has already bowled part of this over.`;
+  if (inn.ineligibleBowlerIds.includes(playerId)) return `${name} bowled in the previous Super Over.`;
+  if (inn.previousOverBowlerIds.includes(playerId)) {
+    return `${name} bowled in the previous over, so cannot bowl part of this one (Law 17.6).`;
+  }
+  const max = state.setup.rules.maxOversPerBowler;
+  if (max !== null) {
+    const ballsLeftInOver = BALLS_PER_OVER - (inn.legalBalls % BALLS_PER_OVER);
+    const balls = inn.bowlers.find((x) => x.playerId === playerId)?.legalBalls ?? 0;
+    if (balls + ballsLeftInOver > max * BALLS_PER_OVER) {
+      return `${name} cannot finish this over without going over the maximum of ${max} overs.`;
+    }
+    if (!canFinishInnings(state, inn, playerId, ballsLeftInOver, [...inn.currentOverBowlerIds, playerId])) {
       return `Choosing ${name} would leave too few eligible bowlers to finish the innings under the ${max}-over limit.`;
     }
   }
@@ -442,9 +723,79 @@ function applyNewBowler(state: MatchState, playerId: string): string | null {
   const reason = bowlerNotAllowedReason(state, inn, playerId);
   if (reason) return reason;
   inn.bowlerId = playerId;
+  inn.currentOverBowlerIds = [playerId];
   inn.currentOverBowlerRuns = 0;
   ensureBowler(inn, playerId);
   state.next = nextWithinInnings(inn);
+  return null;
+}
+
+function applyReplaceBowler(state: MatchState, playerId: string): string | null {
+  if (!canReplaceBowler(state)) {
+    return state.next.type === 'selectBowler' ? 'Choose the bowler for the next over instead.' : needMessage(state.next);
+  }
+  const inn = currentInnings(state)!;
+  const reason = replacementNotAllowedReason(state, inn, playerId);
+  if (reason) return reason;
+  if (overInProgress(inn)) {
+    inn.currentOverBowlerIds.push(playerId);
+  } else {
+    // A correction before the first ball: forget the bowler who never bowled.
+    const previous = inn.bowlers.find((b) => b.playerId === inn.bowlerId);
+    if (previous && previous.legalBalls + previous.wideBalls + previous.noBallBalls === 0) {
+      inn.bowlers.splice(inn.bowlers.indexOf(previous), 1);
+    }
+    inn.currentOverBowlerIds = [playerId];
+  }
+  inn.bowlerId = playerId;
+  ensureBowler(inn, playerId);
+  return null;
+}
+
+function applyRetire(state: MatchState, event: RetireEvent, eventIndex: number): string | null {
+  if (state.next.type === 'selectBatter') return 'Choose the new batter before another batter retires.';
+  if (!canRetire(state)) return 'A batter can only retire between deliveries while an innings is in progress.';
+  const inn = currentInnings(state)!;
+  const { playerId, retirement } = event;
+  if (playerId !== inn.strikerId && playerId !== inn.nonStrikerId) return 'Only a batter at the crease can retire.';
+  if (retirement !== 'hurt' && retirement !== 'out') return 'Choose retired hurt or retired out.';
+
+  const batter = inn.batters.find((b) => b.playerId === playerId)!;
+  const partnership = last(inn.partnerships)!;
+  if (retirement === 'out') {
+    // Law 25.4.3: retired out is a dismissal, not credited to the bowler.
+    const wicket: WicketRecord = { kind: 'retiredOut', playerOutId: playerId, fielderId: null, bowlerId: null, creditedToBowler: false };
+    inn.wickets += 1;
+    batter.wicket = wicket;
+    inn.fallOfWickets.push({ wicketNumber: inn.wickets, teamRuns: inn.runs, legalBalls: inn.legalBalls, playerOutId: playerId });
+    partnership.broken = true;
+    const over = last(inn.overs);
+    if (over && !over.complete) {
+      over.wickets += 1;
+      over.totalWickets = inn.wickets;
+    }
+  } else {
+    batter.retiredHurt = true;
+    partnership.retired = true;
+  }
+  inn.retirements.push({ eventIndex, playerId, retirement, teamRuns: inn.runs, wickets: inn.wickets, legalBalls: inn.legalBalls });
+  // The new batter takes the retired batter's place, on strike if they were (Law 25.4).
+  if (inn.strikerId === playerId) inn.strikerId = null;
+  else inn.nonStrikerId = null;
+  inn.vacancyLeftBy = playerId;
+
+  if (inn.wickets >= inn.wicketsLimit || batterCandidates(inn).length === 0) finishInnings(state, inn, 'allOut');
+  else state.next = nextWithinInnings(inn);
+  return null;
+}
+
+function applyEndInnings(state: MatchState): string | null {
+  if (!canEndInnings(state)) {
+    return state.next.type === 'selectBatter'
+      ? 'There are still batters who have not batted. Choose the next batter.'
+      : 'The innings can only be ended this way when a new batter is needed.';
+  }
+  finishInnings(state, currentInnings(state)!, 'allOut');
   return null;
 }
 
@@ -611,7 +962,7 @@ function applyDelivery(state: MatchState, d: DeliveryEvent, eventIndex: number):
   inn.currentOverBowlerRuns += bowlerRuns;
 
   // The current pair is always the last partnership: a delivery needs both batters present.
-  const partnership = inn.partnerships[inn.partnerships.length - 1];
+  const partnership = last(inn.partnerships)!;
   partnership.runs += totalRuns;
   if (isBallFaced) partnership.balls += 1;
   partnership.batterRuns[partnership.batterIds[0] === strikerId ? 0 : 1] += batterRuns;
@@ -658,10 +1009,12 @@ function applyDelivery(state: MatchState, d: DeliveryEvent, eventIndex: number):
   }
 
   // --- Over-by-over summary ---
-  let overSummary = inn.overs[inn.overs.length - 1];
+  let overSummary = last(inn.overs);
   if (!overSummary || overSummary.over !== over) {
-    overSummary = { over, bowlerId, runs: 0, wickets: 0, legalBalls: 0, totalRuns: 0, totalWickets: 0, complete: false };
+    overSummary = { over, bowlerIds: [bowlerId], runs: 0, wickets: 0, legalBalls: 0, totalRuns: 0, totalWickets: 0, complete: false };
     inn.overs.push(overSummary);
+  } else if (!overSummary.bowlerIds.includes(bowlerId)) {
+    overSummary.bowlerIds.push(bowlerId);
   }
   overSummary.runs += totalRuns;
   if (wicket) overSummary.wickets += 1;
@@ -678,9 +1031,11 @@ function applyDelivery(state: MatchState, d: DeliveryEvent, eventIndex: number):
   // --- End of over: the next over is bowled from the other end (Law 17.1) ---
   const overComplete = isLegalBall && inn.legalBalls % BALLS_PER_OVER === 0;
   if (overComplete) {
-    if (inn.currentOverBowlerRuns === 0) bowler.maidens += 1;
+    // An over shared by two bowlers (Law 17.8) is not a maiden for either of them.
+    if (inn.currentOverBowlerRuns === 0 && inn.currentOverBowlerIds.length === 1) bowler.maidens += 1;
     inn.currentOverBowlerRuns = 0;
-    inn.previousOverBowlerId = bowlerId;
+    inn.previousOverBowlerIds = inn.currentOverBowlerIds;
+    inn.currentOverBowlerIds = [];
     inn.bowlerId = null;
     [atStrikerEnd, atNonStrikerEnd] = [atNonStrikerEnd, atStrikerEnd];
   }
@@ -709,37 +1064,43 @@ function applyDelivery(state: MatchState, d: DeliveryEvent, eventIndex: number):
   });
 
   // --- End of innings / match ---
-  const rules = state.setup.rules;
   let endReason: InningsEndReason | null = null;
   if (inn.target !== null && inn.runs >= inn.target) endReason = 'targetReached';
-  else if (inn.wickets >= rules.playersPerSide - 1) endReason = 'allOut';
-  else if (inn.legalBalls >= rules.oversPerInnings * BALLS_PER_OVER) endReason = 'overs';
+  else if (inn.wickets >= inn.wicketsLimit) endReason = 'allOut';
+  else if (wicket && batterCandidates(inn).length === 0) endReason = 'allOut'; // nobody left who may bat
+  else if (inn.legalBalls >= inn.oversLimit * BALLS_PER_OVER) endReason = 'overs';
 
-  if (endReason) {
-    inn.completed = true;
-    inn.endReason = endReason;
-    inn.freeHitNext = false;
-    if (inn.index === 0) {
-      state.next = { type: 'selectOpeners', inningsIndex: 1 };
-    } else {
-      state.result = decideResult(state);
-      state.next = { type: 'matchComplete' };
-    }
-  } else {
-    state.next = nextWithinInnings(inn);
-  }
+  if (endReason) finishInnings(state, inn, endReason);
+  else state.next = nextWithinInnings(inn);
   return null;
 }
 
-/** Law 16.2 (win) and 16.5.1 (tie) for a one-innings-per-side match. */
-function decideResult(state: MatchState): MatchResult {
-  const [first, second] = state.innings;
+function finishInnings(state: MatchState, inn: InningsState, endReason: InningsEndReason) {
+  inn.completed = true;
+  inn.endReason = endReason;
+  inn.freeHitNext = false;
+  if (inn.index % 2 === 0) {
+    state.next = { type: 'selectOpeners', inningsIndex: inn.index + 1 };
+  } else {
+    state.result = decideResult(state, inn);
+    state.next = { type: 'matchComplete' };
+  }
+}
+
+/** Law 16.2 (win) and 16.5.1 (tie) for a one-innings-per-side match; then any Super Over. */
+function decideResult(state: MatchState, second: InningsState): MatchResult {
+  const first = state.innings[second.index - 1];
+  if (second.superOver !== null) {
+    if (second.runs === first.runs) return { type: 'superOverTie', superOvers: second.superOver };
+    const winner = second.runs > first.runs ? second.battingTeam : first.battingTeam;
+    return { type: 'superOverWin', winnerTeamId: winner.teamId, superOvers: second.superOver };
+  }
   if (second.runs > first.runs) {
     return {
       type: 'winByWickets',
       winnerTeamId: second.battingTeam.teamId,
-      wickets: state.setup.rules.playersPerSide - 1 - second.wickets,
-      ballsRemaining: state.setup.rules.oversPerInnings * BALLS_PER_OVER - second.legalBalls,
+      wickets: second.wicketsLimit - second.wickets,
+      ballsRemaining: second.oversLimit * BALLS_PER_OVER - second.legalBalls,
     };
   }
   if (second.runs === first.runs) return { type: 'tie' };

@@ -36,19 +36,21 @@ export function CreasePanel({ inn }: { inn: InningsState }) {
   };
 
   const bowler = inn.bowlerId ? inn.bowlers.find((b) => b.playerId === inn.bowlerId) : null;
-  const lastBowler = inn.previousOverBowlerId ? inn.bowlers.find((b) => b.playerId === inn.previousOverBowlerId) : null;
+  const lastBowlers = inn.bowlers.filter((b) => inn.previousOverBowlerIds.includes(b.playerId)).map((b) => b.name);
   const shown = bowler ?? null;
   const partnership = inn.partnerships[inn.partnerships.length - 1];
+  const retiredHurt = inn.batters.filter((b) => b.retiredHurt).map((b) => b.name);
 
   return (
     <View style={styles.card}>
       {batter(inn.strikerId, true)}
       {batter(inn.nonStrikerId, false)}
-      {partnership && !partnership.broken ? (
+      {partnership && !partnership.broken && !partnership.retired ? (
         <Text style={styles.partnership}>
           Partnership {partnership.runs} ({partnership.balls} {partnership.balls === 1 ? 'ball' : 'balls'})
         </Text>
       ) : null}
+      {retiredHurt.length ? <Text style={styles.partnership}>Retired hurt: {retiredHurt.join(', ')}</Text> : null}
       <View style={styles.divider} />
       {shown ? (
         <View style={styles.bowlerRow} accessibilityLabel={`Bowling: ${shown.name}`}>
@@ -62,7 +64,7 @@ export function CreasePanel({ inn }: { inn: InningsState }) {
         </View>
       ) : (
         <Text style={styles.waiting}>
-          {inn.completed ? 'Innings complete' : `Over complete${lastBowler ? ` (${lastBowler.name})` : ''}: choose the next bowler`}
+          {inn.completed ? 'Innings complete' : `Over complete${lastBowlers.length ? ` (${lastBowlers.join(' & ')})` : ''}: choose the next bowler`}
         </Text>
       )}
     </View>

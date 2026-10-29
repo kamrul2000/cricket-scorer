@@ -15,12 +15,12 @@ playing conditions.**
 
 | Rule | Behaviour | Source |
 |---|---|---|
-| Innings | One innings per side. | Law 13.1.2 (agreement) |
+| Innings | One innings per side, plus Super Overs after a tie if the scorer chooses (section 18). | Law 13.1.2 (agreement) |
 | Overs | A positive whole number of overs per innings, chosen at setup (max 100). | Match agreement |
 | Balls per over | 6 valid balls. | Law 17.1 |
-| Players per side | Equal for both teams, 2 to 11 (default 11). | **Local override.** The Laws assume 11 (Law 1.1), but allow other numbers by agreement. |
-| All out | When `playersPerSide - 1` wickets have fallen. "Last batter stands" is **not** supported. | Law 13.3 |
-| Result | Higher total wins (Law 16.2). Equal totals with both innings complete is a tie (Law 16.5.1). Margins are in runs (side batting first) or wickets (side batting second, = players − 1 − wickets lost). An abandoned match has no result (section 11). | Law 16 |
+| Players per side | 2 to 11 for each team (default 11). The two teams may have **different** numbers (for example 11 v 10). | **Local override.** The Laws assume 11 (Law 1.1), but allow other numbers by agreement. |
+| All out | When the batting side's lineup size − 1 wickets have fallen, or when a batter is needed and nobody is left who may bat (section 15). "Last batter stands" is **not** supported. | Law 13.3 |
+| Result | Higher total wins (Law 16.2). Equal totals with both innings complete is a tie (Law 16.5.1). Margins are in runs (side batting first) or wickets (side batting second, = that side's players − 1 − wickets lost). An abandoned match has no result (section 11). | Law 16 |
 | Match end | The match ends the instant the target is reached (see section 6). | Law 16.6 |
 
 ## 2. Counting balls
@@ -96,13 +96,13 @@ wicket's end (Laws 38.4, 18.12). A run out cannot happen on a delivery that reac
 Caught requires the catcher, and stumped requires the wicket-keeper (who cannot be the bowler).
 Fielders must be in the fielding lineup.
 
+Retired out (Law 25.4.3) is recorded between deliveries, see section 15.
+
 **Not supported** (the app rejects or cannot record them):
 - obstructing the field
 - hit the ball twice
 - timed out
-- retired (hurt or out)
 - non-striker run out before delivery (Law 38.3)
-- a bowler changing mid-over (Law 17.8)
 - dead-ball re-bowls
 - substitute or runner rules (substitutes can be named, see section 14)
 
@@ -125,7 +125,9 @@ In the second innings:
   Law. The app also blocks a choice that would make it impossible to finish the innings
   without breaking Law 17.6 or the limit.
 - Maiden = a completed over with no runs debited to the bowler. Byes and leg byes do not spoil
-  a maiden; wides and no-balls do.
+  a maiden; wides and no-balls do. An over shared by two bowlers (section 16) is not a maiden.
+- The maximum overs limit counts balls: a bowler may start an over only if a full over still
+  fits under the limit.
 
 ## 8. Free hit: competition rule, optional
 
@@ -141,9 +143,11 @@ The free hit is **not** in the MCC Laws. It is an ICC limited-overs playing cond
 ## 9. Undo
 
 Undo removes the most recent event: a delivery, a new-batter choice, a new-bowler choice, an
-innings start, a batter swap, or an abandon. The match state is always recomputed from the
-remaining events, so undo reverses everything that event caused. That includes over
-completion, free hits, innings completion and the match result.
+innings start, a batter swap, an abandon, a retirement, a bowler replacement, ending an innings
+or starting a Super Over. The match state is always recomputed from the remaining events, so
+undo reverses everything that event caused. That includes over completion, free hits, innings
+completion and the match result. To correct an older delivery without undoing what came after
+it, edit it (section 17).
 
 ## 10. Scorer corrections: swap batsmen
 
@@ -176,12 +180,13 @@ recalculate them.
 | Required rate | Runs needed × 6 ÷ legal balls remaining. |
 | Partnership | Team runs (including extras) while two batters were together, from when the second arrived until a wicket. Balls = balls faced by the pair (wides excluded). Each batter's share is their runs off the bat. "Unbroken" = no wicket ended it. A batter swap does not start a new partnership. |
 | Over by over | Team runs and wickets in each over, and the team score at the end of it. Wides and no-balls belong to the over in which they were bowled. |
-| Batting average (career) | Runs ÷ times dismissed. "-" until dismissed once. |
+| Batting average (career) | Runs ÷ times dismissed. "-" until dismissed once. Retired hurt counts as not out; retired out as a dismissal. |
 | Bowling average (career) | Runs conceded ÷ wickets. "-" until a wicket. |
 | Best bowling (career) | Most wickets in one innings, then fewest runs. |
 
 Averages are only shown across matches (on the player screen): one innings is not a
-meaningful sample. Displayed values are rounded with JavaScript's `toFixed`, which rounds the
+meaningful sample. Super Over figures are not included in career figures or the automatic
+awards (as in official records), but they are on the scorecard. Displayed values are rounded with JavaScript's `toFixed`, which rounds the
 binary value, so an exact halfway case (such as 1.005) can round down. Only the display is
 rounded; counts of runs and balls are always whole numbers.
 
@@ -204,10 +209,71 @@ match is complete.
 
 ## 14. Lineups, captains and substitutes
 
-- Each team plays the configured number of players (2 to 11). A player can appear only once
-  per match, in one team, either in the playing lineup or as a substitute.
+- Each team plays the number of players chosen for it (2 to 11; the two teams may differ). A
+  player can appear only once per match, in one team, either in the playing lineup or as a
+  substitute.
 - The captain and vice-captain (optional) must be in the playing lineup and be different
   players. They default to the team's captain and vice-captain.
 - **Substitutes** are recorded and shown on the scorecard, but **cannot bat, bowl, or be
   recorded as fielders** (catches, stumpings, run outs). Substitute, replacement and runner
   rules (Law 24, Law 25.5) are not supported in this version.
+
+## 15. Retirements (Law 25.4)
+
+A batter at the crease can retire between deliveries (also between overs), but not while a new
+batter still has to be chosen. A new batter takes their place, on strike if the retiring batter
+was on strike.
+
+| | Retired hurt (not out) | Retired out |
+|---|---|---|
+| Wicket? | No. Not in the fall of wickets. | Yes, with a fall of wicket. Not credited to the bowler. |
+| Partnership | Ends, marked "(retired hurt)". The next one is for the same wicket. | Broken, as by any wicket. |
+| Can bat again? | Yes, whenever a new batter is needed later, continuing the same innings (runs and balls carry on). Not to fill the vacancy their own retirement left (Law 25.4.2). | No. |
+| Scorecard | "retired hurt" (if they did not resume); not out in career figures. | "retired out"; a dismissal in career figures. |
+
+When a new batter is needed and nobody may bat (everyone else is out, at the crease, or has just
+retired), the innings ends as all out. When only retired-hurt batters are left and none of them
+can resume, the scorer ends the innings with "No one else can bat: end innings".
+
+## 16. A bowler who cannot finish an over (Law 17.8)
+
+"Change bowler" during an over: another bowler finishes it.
+
+- Balls already bowled stay in the first bowler's figures; the rest are the new bowler's.
+- The new bowler must not have bowled (part of) the previous over or of this over.
+- **Neither** bowler may bowl the next over (Law 17.6: no parts of two consecutive overs).
+- The over is no one's maiden. The over-by-over summary lists both bowlers.
+- The maximum-overs limit, if set, also applies to the balls the new bowler will bowl.
+
+Before the first ball of an over, "Change bowler" only corrects who is bowling it: the bowler
+who never bowled is forgotten and is not blocked from the next over.
+
+## 17. Editing an earlier delivery
+
+Any delivery can be opened again ("Edit a ball", or tap a ball in the current over) and changed:
+ball type, runs, extras, boundary and wicket. The engine then replays the rest of the match:
+
+- Later deliveries keep what the scorer recorded (runs, extras, wickets), but their striker,
+  non-striker and bowler come from the corrected match, because an edit can change who was on
+  strike (for example 1 run corrected to 2).
+- If a later action no longer fits, the edit is refused and nothing changes. Examples: removing
+  a wicket after which a new batter was chosen, turning a wide into a fair ball in an over that
+  has already finished, or a run that would have won the match earlier than recorded. Undo back
+  to that ball and score again instead.
+- The edited history is saved in one transaction. A changed first innings changes the target.
+
+## 18. Super Over (ICC playing conditions, optional)
+
+When the match is tied, the scorer may play a Super Over ("Play a Super Over"; the match stays
+tied if they do not).
+
+- Each side bats one over. An innings ends after 2 wickets (or 1 with only 2 players), at the
+  end of the over, or when the target is reached.
+- The side that batted second in the match bats first. The target is their Super Over score + 1.
+- If the Super Over is also tied, another may be played. The side that batted second in the
+  previous Super Over bats first. A player dismissed in any earlier Super Over may not bat, and a
+  bowler of the previous Super Over may not bowl.
+- Result: "Match tied · Alpha won the Super Over" (or "… the 2nd Super Over").
+- A Super Over that is abandoned leaves the match tied.
+- Super Over figures are on the scorecard, but not in career figures or the automatic awards.
+- Boundary-count and other tie-breaks are not supported.

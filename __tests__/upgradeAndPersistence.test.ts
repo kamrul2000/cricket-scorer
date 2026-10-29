@@ -41,7 +41,8 @@ async function schema2Database() {
   ];
   for (let seq = 0; seq < events.length; seq++) {
     const row = eventToRow(seq, { event: events[seq], inningsIndex: 0, record: null });
-    const cols = Object.keys(row);
+    // Only the columns a schema-2 database had (`retirement` was added in schema 7).
+    const cols = Object.keys(row).filter((c) => c !== 'retirement');
     await db.run(
       `INSERT INTO match_events (match_id, created_at, ${cols.join(', ')}) VALUES (?, ?, ${cols.map(() => '?').join(', ')})`,
       ['m1', T, ...cols.map((c) => row[c as keyof typeof row])],
@@ -118,6 +119,7 @@ describe('older backups', () => {
     delete file.files;
     for (const t of file.data.teams) for (const c of ['description', 'logo_file', 'captain_id', 'vice_captain_id']) delete t[c];
     for (const p of file.data.matchPlayers) for (const c of ['is_substitute', 'role']) delete p[c];
+    for (const e of file.data.matchEvents) delete e.retirement;
     const check = parseBackup(JSON.stringify(file));
     if (!check.ok) throw new Error(check.errors.join('\n'));
     expect(check.backup.file.data.teams[0]).toMatchObject({ description: '', logo_file: null, captain_id: null });

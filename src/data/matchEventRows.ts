@@ -1,5 +1,5 @@
 // Converts match events to and from `match_events` rows.
-import type { Boundary, BallType, Dismissal, DismissalKind, End, MatchEvent, RunsFrom } from '../domain/match';
+import type { Boundary, BallType, Dismissal, DismissalKind, End, MatchEvent, Retirement, RunsFrom } from '../domain/match';
 import type { DeliveryRecord } from '../domain/scoring';
 import type { SqlValue } from './database';
 
@@ -19,6 +19,8 @@ export interface EventRow {
   dismissed_player_id: string | null;
   run_out_end: string | null;
   fielder_id: string | null;
+  /** 'hurt' or 'out' for a retirement (schema 7). */
+  retirement: string | null;
   batter_runs: number | null;
   extras_wides: number | null;
   extras_no_balls: number | null;
@@ -49,6 +51,7 @@ export const EVENT_COLUMNS: (keyof EventRow)[] = [
   'dismissed_player_id',
   'run_out_end',
   'fielder_id',
+  'retirement',
   'batter_runs',
   'extras_wides',
   'extras_no_balls',
@@ -65,8 +68,8 @@ export const EVENT_COLUMNS: (keyof EventRow)[] = [
 /** What the repository needs to store one event. */
 export interface EventToStore {
   event: MatchEvent;
-  /** Innings the event belongs to, from the scoring engine. */
-  inningsIndex: 0 | 1;
+  /** Innings the event belongs to, from the scoring engine (2 and up are Super Overs). */
+  inningsIndex: number;
   /** The engine's interpretation, for deliveries. */
   record: DeliveryRecord | null;
 }
@@ -90,6 +93,7 @@ export function eventToRow(seq: number, { event, inningsIndex, record }: EventTo
     dismissed_player_id: null,
     run_out_end: null,
     fielder_id: null,
+    retirement: null,
     batter_runs: null,
     extras_wides: null,
     extras_no_balls: null,
@@ -110,10 +114,17 @@ export function eventToRow(seq: number, { event, inningsIndex, record }: EventTo
       break;
     case 'newBatter':
     case 'newBowler':
+    case 'replaceBowler':
       row.player_id = event.playerId;
+      break;
+    case 'retire':
+      row.player_id = event.playerId;
+      row.retirement = event.retirement;
       break;
     case 'swapBatters':
     case 'abandon':
+    case 'endInnings':
+    case 'superOver':
       break; // the type is the whole event
     case 'delivery': {
       row.striker_id = event.strikerId;
@@ -179,9 +190,18 @@ export function rowToEvent(row: EventRow): MatchEvent {
       };
     case 'newBatter':
     case 'newBowler':
+    case 'replaceBowler':
       return { type: row.type, playerId: need(row.player_id, 'the player', s) };
+    case 'retire':
+      return {
+        type: 'retire',
+        playerId: need(row.player_id, 'the player', s),
+        retirement: oneOf<Retirement>(row.retirement, ['hurt', 'out'], 'retirement', s),
+      };
     case 'swapBatters':
     case 'abandon':
+    case 'endInnings':
+    case 'superOver':
       return { type: row.type };
     case 'delivery': {
       const strikerId = need(row.striker_id, 'the striker', s);

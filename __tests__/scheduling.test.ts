@@ -38,7 +38,7 @@ async function app() {
     playersPerSide: 2,
   };
   const setup: MatchSetup = {
-    rules: { oversPerInnings: 10, playersPerSide: 2, freeHitAfterNoBall: true, maxOversPerBowler: null },
+    rules: { oversPerInnings: 10, freeHitAfterNoBall: true, maxOversPerBowler: null },
     teams: [
       { teamId: tA.id, name: 'Tigers', players: [ps[0], ps[1]].map((p) => ({ playerId: p.id, name: p.name })) },
       { teamId: tB.id, name: 'Lions', players: [ps[2], ps[3]].map((p) => ({ playerId: p.id, name: p.name })) },

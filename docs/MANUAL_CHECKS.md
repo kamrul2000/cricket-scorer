@@ -99,6 +99,36 @@ restore. These checks cover what only a real phone can show. Run them on the **r
 - [ ] Open the upcoming match again (e.g. with Back) and tap Start scoring: it says the match
       has already started instead of creating a second one.
 
+## Retirements, bowler changes, edits, unequal teams and Super Overs
+
+- [ ] New match with "Teams have different numbers of players" on: 4 v 3. Each lineup step asks
+      for its own number; the scorecard shows "4 v 3 players". The 3-player side is all out after
+      2 wickets.
+- [ ] "Retire batter" > striker > Retired hurt: the new batter is asked for and takes strike. The
+      retired batter is listed under "Retired hurt" and is not offered for their own place.
+      After the next wicket they are offered ("retired hurt: resumes") and their score continues.
+- [ ] "Retire batter" > Retired out: counts as a wicket and in the fall of wickets, "retired out"
+      on the scorecard, no wicket for the bowler.
+- [ ] Retire everyone you can until only retired-hurt batters are left: "No one else can bat: end
+      innings" ends the innings.
+- [ ] After 2 balls of an over, "Change bowler": the second bowler finishes the over. The
+      over-by-over shows both names, and neither is allowed to bowl the next over.
+- [ ] Before the first ball of an over, "Change bowler" just swaps the bowler; the first one is not
+      on the scorecard.
+- [ ] Tap a ball in the current over, change 1 run to 2: the preview shows the new score
+      ("was …"). Save: the strike and the later balls follow the correction. Close and reopen the
+      app: the edit is still there.
+- [ ] "Edit a ball", choose a wicket that was followed by a new batter, set "No wicket": it is
+      refused with an explanation and nothing changes.
+- [ ] Settings > "Make the next save fail", then edit a ball: "Edit not saved" with Retry; Retry
+      saves it once.
+- [ ] Play a match to a tie: "Play a Super Over" appears. The side that batted second bats
+      first, the innings stops after 1 over or 2 wickets, the chase shows the target, and the
+      result reads "Match tied · … won the Super Over". Super Over runs are not in career figures.
+- [ ] Tie the Super Over too: "Play a 2nd Super Over" appears; a batter dismissed and the bowlers
+      of the first Super Over are shown as not allowed.
+- [ ] PDF and image exports of a Super Over match show the Super Over innings.
+
 ## Upgrading from the Stage 4 app
 
 - [ ] Install the Stage 4 APK, score part of a match, then install this version over it

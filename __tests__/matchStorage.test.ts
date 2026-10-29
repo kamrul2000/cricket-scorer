@@ -20,7 +20,7 @@ async function setup() {
   const teamA = await repos.teams.create('Alpha', a.map((p) => p.id));
   const teamB = await repos.teams.create('Bravo', b.map((p) => p.id));
   const matchSetup: MatchSetup = {
-    rules: { oversPerInnings: 1, playersPerSide: 3, freeHitAfterNoBall: true, maxOversPerBowler: null },
+    rules: { oversPerInnings: 1, freeHitAfterNoBall: true, maxOversPerBowler: null },
     teams: [
       { teamId: teamA.id, name: 'Alpha', players: a.map((p) => ({ playerId: p.id, name: p.name })) },
       { teamId: teamB.id, name: 'Bravo', players: b.map((p) => ({ playerId: p.id, name: p.name })) },
@@ -57,7 +57,7 @@ describe('event row mapping', () => {
     const tm = new TestMatch(
       (() => {
         const s = {
-          rules: { oversPerInnings: 2, playersPerSide: 4, freeHitAfterNoBall: true, maxOversPerBowler: null },
+          rules: { oversPerInnings: 2, freeHitAfterNoBall: true, maxOversPerBowler: null },
           teams: [
             { teamId: 'ta', name: 'A', players: ['a1', 'a2', 'a3', 'a4'].map((id) => ({ playerId: id, name: id })) },
             { teamId: 'tb', name: 'B', players: ['b1', 'b2', 'b3', 'b4'].map((id) => ({ playerId: id, name: id })) },

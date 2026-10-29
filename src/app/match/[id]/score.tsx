@@ -6,6 +6,8 @@ import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../../../components/Button';
+import { ReplaceBowlerPanel, RetirePanel } from '../../../components/scoring/ActionPanels';
+import { BallPicker } from '../../../components/scoring/BallPicker';
 import { DeliveryEditor } from '../../../components/scoring/DeliveryEditor';
 import { CreasePanel } from '../../../components/scoring/CreasePanel';
 import { OverStrip } from '../../../components/scoring/OverStrip';
@@ -20,17 +22,22 @@ import {
 import { ErrorBanner, ErrorView, LoadingView } from '../../../components/StateViews';
 import { describeLastEvent } from '../../../domain/format';
 import type { DeliveryEvent, MatchEvent } from '../../../domain/match';
-import { canSwapBatters, currentInnings } from '../../../domain/scoring';
+import { canReplaceBowler, canRetire, canSwapBatters, currentInnings } from '../../../domain/scoring';
 import { useMatchScoring } from '../../../hooks/useMatchScoring';
 import { colors, font, radius, spacing } from '../../../theme/theme';
+
+/** The delivery editor: a new ball from a preset, or (with editIndex) an earlier ball. */
+type EditorState = { preset: EditorPreset; editIndex?: number };
 
 export default function ScoreScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { match, loadError, saving, saveError, submit, undo, retry, discardFailed, reload } = useMatchScoring(id);
-  const [editor, setEditor] = useState<EditorPreset | null>(null);
+  const { match, loadError, saving, saveError, submit, edit, undo, retry, discardFailed, reload } = useMatchScoring(id);
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [panel, setPanel] = useState<'retire' | 'bowler' | null>(null);
+  const [pickingBall, setPickingBall] = useState(false);
   const [quickError, setQuickError] = useState<string | null>(null);
 
   // Every saved action is already in the database, so leaving is always safe, except for an
@@ -118,7 +125,18 @@ export default function ScoreScreen() {
   const next = state.next;
   const canUndo = events.length > 1;
   const swapAllowed = canSwapBatters(state);
-  const swapBlockedReason = next.type === 'selectBatter' ? 'Choose the new batter before swapping.' : null;
+  const swapBlockedReason = next.type === 'selectBatter' ? 'Choose the new batter before swapping or retiring.' : null;
+  const retireAllowed = canRetire(state);
+  const bowlerChangeAllowed = canReplaceBowler(state);
+  const hasDeliveries = state.innings.some((i) => i.deliveries.length > 0);
+  const openEdit = (eventIndex: number) => {
+    setQuickError(null);
+    setPickingBall(false);
+    setEditor({ preset: { kind: 'fair' }, editIndex: eventIndex });
+  };
+  // An open action panel takes the place of the pad (or the current prompt) until it closes.
+  const shownPanel =
+    panel === 'retire' && retireAllowed ? 'retire' : panel === 'bowler' && bowlerChangeAllowed ? 'bowler' : null;
 
   return (
     <View style={styles.screen}>
@@ -151,11 +169,42 @@ export default function ScoreScreen() {
         {inn && !inn.completed ? <CreasePanel inn={inn} /> : null}
         {swapAllowed || swapBlockedReason ? (
           <View style={styles.swapRow}>
-            <Button title="⇄ Swap batsmen" variant="secondary" onPress={confirmSwap} disabled={blocked || !swapAllowed} />
+            <View style={styles.row}>
+              <View style={styles.flex}>
+                <Button title="⇄ Swap batsmen" variant="secondary" onPress={confirmSwap} disabled={blocked || !swapAllowed} />
+              </View>
+              <View style={styles.flex}>
+                <Button
+                  title="Retire batter"
+                  variant="secondary"
+                  onPress={() => setPanel(shownPanel === 'retire' ? null : 'retire')}
+                  disabled={blocked || !retireAllowed}
+                />
+              </View>
+            </View>
             {swapBlockedReason ? <Text style={styles.hint}>{swapBlockedReason}</Text> : null}
           </View>
         ) : null}
-        {inn ? <OverStrip inn={inn} /> : null}
+        {inn ? <OverStrip inn={inn} onSelectBall={blocked ? undefined : openEdit} /> : null}
+        {hasDeliveries || bowlerChangeAllowed ? (
+          <View style={styles.row}>
+            {hasDeliveries ? (
+              <View style={styles.flex}>
+                <Button title="Edit a ball" variant="secondary" onPress={() => setPickingBall(true)} disabled={blocked} />
+              </View>
+            ) : null}
+            {bowlerChangeAllowed ? (
+              <View style={styles.flex}>
+                <Button
+                  title="Change bowler"
+                  variant="secondary"
+                  onPress={() => setPanel(shownPanel === 'bowler' ? null : 'bowler')}
+                  disabled={blocked}
+                />
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {saving ? (
           <Text style={styles.saving} accessibilityLiveRegion="polite">
@@ -164,14 +213,18 @@ export default function ScoreScreen() {
         ) : null}
         {quickError ? <ErrorBanner message={quickError} /> : null}
 
-        {next.type === 'delivery' ? (
+        {shownPanel === 'retire' ? (
+          <RetirePanel state={state} saving={blocked} onSubmit={submit} onClose={() => setPanel(null)} />
+        ) : shownPanel === 'bowler' ? (
+          <ReplaceBowlerPanel state={state} saving={blocked} onSubmit={submit} onClose={() => setPanel(null)} />
+        ) : next.type === 'delivery' ? (
           <ScoringPad
             disabled={blocked}
             onRuns={(runs) => void quick({ runs, boundary: 'none' })}
             onBoundary={(b) => void quick({ runs: 0, boundary: b })}
             onOpenEditor={(p) => {
               setQuickError(null);
-              setEditor(p);
+              setEditor({ preset: p });
             }}
             onUndo={confirmUndo}
             canUndo={canUndo}
@@ -182,7 +235,12 @@ export default function ScoreScreen() {
             {next.type === 'selectBowler' ? <NewBowlerPanel state={state} saving={blocked} onSubmit={submit} /> : null}
             {next.type === 'selectOpeners' ? <InningsBreakPanel state={state} saving={blocked} onSubmit={submit} /> : null}
             {next.type === 'matchComplete' ? (
-              <MatchCompletePanel state={state} onViewScorecard={() => router.push(`/match/${id}`)} />
+              <MatchCompletePanel
+                state={state}
+                saving={blocked}
+                onSubmit={submit}
+                onViewScorecard={() => router.push(`/match/${id}`)}
+              />
             ) : null}
             <Button title="Undo last action" variant="secondary" onPress={confirmUndo} disabled={blocked || !canUndo} />
           </>
@@ -198,14 +256,16 @@ export default function ScoreScreen() {
       {editor ? (
         <DeliveryEditor
           visible
-          preset={editor}
+          preset={editor.preset}
+          editIndex={editor.editIndex}
           state={state}
           events={events}
           saving={saving}
           onCancel={() => setEditor(null)}
-          onSubmit={submit}
+          onSubmit={(event) => (editor.editIndex === undefined ? submit(event) : edit(editor.editIndex, event))}
         />
       ) : null}
+      {pickingBall ? <BallPicker state={state} onSelect={openEdit} onClose={() => setPickingBall(false)} /> : null}
     </View>
   );
 }

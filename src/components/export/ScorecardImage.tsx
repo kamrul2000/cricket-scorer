@@ -4,7 +4,7 @@ import { forwardRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { ResolvedAwards } from '../../domain/awards';
-import { dismissalText, extrasLine, formatOvers, resultText, roleSuffix, scoreText } from '../../domain/format';
+import { battingStatus, extrasLine, formatOvers, inningsLabel, resultText, roleSuffix, scoreText } from '../../domain/format';
 import { formatLabel, formatMatchDate } from '../../domain/schedule';
 import type { InningsState, MatchState } from '../../domain/scoring';
 import type { MatchDetails } from '../../data/matchRepository';
@@ -33,7 +33,10 @@ function Innings({ state, inn }: { state: MatchState; inn: InningsState }) {
   return (
     <View style={styles.innings}>
       <View style={styles.inningsHead}>
-        <Text style={styles.inningsTeam}>{inn.battingTeam.name}</Text>
+        <Text style={styles.inningsTeam}>
+          {inn.superOver === null ? '' : `${inningsLabel(inn)}: `}
+          {inn.battingTeam.name}
+        </Text>
         <Text style={styles.inningsScore}>
           {scoreText(inn)} <Text style={styles.inningsOvers}>({formatOvers(inn.legalBalls)} ov)</Text>
         </Text>
@@ -45,7 +48,7 @@ function Innings({ state, inn }: { state: MatchState; inn: InningsState }) {
               {b.name}
               {roleSuffix(inn.battingTeam, b.playerId)}
             </Text>
-            <Text style={styles.how}>{b.wicket ? dismissalText(state.setup, b.wicket) : 'not out'}</Text>
+            <Text style={styles.how}>{battingStatus(state.setup, inn, b)}</Text>
           </View>
           <Text style={styles.figure}>
             {b.runs}

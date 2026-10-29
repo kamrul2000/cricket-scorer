@@ -19,8 +19,15 @@
 //   5. bowling earlier (first innings before second, then order of first bowling).
 //
 // Player of the Match: chosen by the scorer from the two playing lineups (not substitutes).
+//
+// Only the two main innings count: Super Over figures are not part of a player's match figures.
 import { BALLS_PER_OVER } from './match';
-import type { MatchState } from './scoring';
+import type { InningsState, MatchState } from './scoring';
+
+/** The two main innings, without any Super Over. */
+export function mainInnings(state: MatchState): InningsState[] {
+  return state.innings.filter((inn) => !inn.superOver);
+}
 
 /** What is stored for a match. null = not chosen (POM) or automatic (best batter / bowler). */
 export interface MatchAwards {
@@ -54,7 +61,7 @@ export interface BowlingPerformance {
 
 /** Eligible batters, best first. */
 export function rankBatters(state: MatchState): BattingPerformance[] {
-  const list = state.innings.flatMap((inn) =>
+  const list = mainInnings(state).flatMap((inn) =>
     inn.batters.map((b) => ({
       playerId: b.playerId,
       name: b.name,
@@ -78,7 +85,7 @@ export function rankBatters(state: MatchState): BattingPerformance[] {
 
 /** Eligible bowlers, best first. */
 export function rankBowlers(state: MatchState): BowlingPerformance[] {
-  const all = state.innings.flatMap((inn) =>
+  const all = mainInnings(state).flatMap((inn) =>
     inn.bowlers
       .filter((b) => b.legalBalls > 0)
       .map((b) => ({

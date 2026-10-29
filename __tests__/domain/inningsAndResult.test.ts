@@ -22,7 +22,7 @@ describe('innings completion', () => {
       if (w < players - 1) {
         expect(m.state.next.type).toBe('selectBatter');
         m.batter(`a${w + 2}`);
-        if (m.state.next.type === 'selectBowler') m.bowler(m.innings.previousOverBowlerId === 'b1' ? 'b2' : 'b1');
+        if (m.state.next.type === 'selectBowler') m.bowler(m.innings.previousOverBowlerIds.includes('b1') ? 'b2' : 'b1');
       }
     }
     expect(m.state.innings[0]).toMatchObject({ completed: true, endReason: 'allOut', wickets: players - 1 });

@@ -1,16 +1,17 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { chaseInfo, formatOvers, formatRate, runRate, scoreText } from '../../domain/format';
+import { chaseInfo, formatOvers, formatRate, inningsLabel, runRate, scoreText } from '../../domain/format';
 import type { InningsState, MatchState } from '../../domain/scoring';
 import { colors, font, radius, spacing } from '../../theme/theme';
 
 export function ScoreHeader({ state, inn }: { state: MatchState; inn: InningsState }) {
   const chase = chaseInfo(state, inn);
-  const totalOvers = state.setup.rules.oversPerInnings;
+  const totalOvers = inn.oversLimit;
   return (
     <View style={styles.card} accessibilityRole="summary">
       <Text style={styles.team}>
-        {inn.battingTeam.name} · {inn.index === 0 ? '1st' : '2nd'} innings
+        {inn.battingTeam.name} · {inningsLabel(inn)}
+        {inn.superOver !== null ? ` · ${inn.wicketsLimit} wickets end the innings` : ''}
       </Text>
       <View style={styles.row}>
         <Text style={styles.score} accessibilityLabel={`${inn.runs} runs for ${inn.wickets} wickets`}>

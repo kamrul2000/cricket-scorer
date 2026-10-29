@@ -7,14 +7,16 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 
 import { useMatchService } from '../data/AppDataProvider';
-import type { MatchEvent } from '../domain/match';
-import { ScoringError, tryAddEvent } from '../domain/scoring';
+import type { DeliveryEvent, MatchEvent } from '../domain/match';
+import { ScoringError, tryAddEvent, tryEditDelivery } from '../domain/scoring';
 import type { LoadedMatch } from '../services/matchService';
 import { errorMessage } from '../utils/errors';
 
 type FailedAction =
   | { kind: 'record'; event: MatchEvent; baseCount: number }
-  | { kind: 'undo'; baseCount: number };
+  | { kind: 'undo'; baseCount: number }
+  /** before = the whole event history (JSON) the edit was made on. */
+  | { kind: 'edit'; index: number; event: DeliveryEvent; before: string };
 
 /**
  * error = a message for the caller to show next to its controls, or null when there is nothing
@@ -135,6 +137,37 @@ export function useMatchScoring(matchId: string) {
     return result;
   }, [exclusive, service, show]);
 
+  /** Changes an earlier delivery (see tryEditDelivery). Same guarantees as `submit`. */
+  const edit = useCallback(
+    async (index: number, event: DeliveryEvent): Promise<SubmitResult> => {
+      if (busy.current) return IGNORED;
+      const current = matchRef.current;
+      if (!current) return { ok: false, error: 'The match is still loading.' };
+      if (failed.current) return { ok: false, error: 'Resolve the save problem shown above first.' };
+      const check = tryEditDelivery(current.setup, current.events, index, event);
+      if (!check.ok) return { ok: false, error: check.error };
+
+      let result: SubmitResult = IGNORED;
+      await exclusive(async () => {
+        try {
+          show(await service.editDelivery(current, index, event));
+          setSaveError(null);
+          result = { ok: true };
+        } catch (e) {
+          if (e instanceof ScoringError) {
+            result = { ok: false, error: e.message };
+            return;
+          }
+          failed.current = { kind: 'edit', index, event, before: JSON.stringify(current.events) };
+          setSaveError(`Edit not saved: ${errorMessage(e)}`);
+          result = { ok: false, error: null };
+        }
+      });
+      return result;
+    },
+    [exclusive, service, show],
+  );
+
   /** Re-reads the database, then repeats the failed action only if it was not stored. */
   const retry = useCallback(async () => {
     const action = failed.current;
@@ -148,6 +181,11 @@ export function useMatchScoring(matchId: string) {
           const last = fresh.events[n - 1];
           const alreadyStored = n === action.baseCount + 1 && JSON.stringify(last) === JSON.stringify(action.event);
           show(alreadyStored ? fresh : n === action.baseCount ? await service.recordEvent(fresh, action.event) : fresh);
+        } else if (action.kind === 'edit') {
+          // Unchanged history = the edit was not stored; anything else (including the edited
+          // history) is shown as stored.
+          const unchanged = JSON.stringify(fresh.events) === action.before;
+          show(unchanged ? await service.editDelivery(fresh, action.index, action.event) : fresh);
         } else {
           show(n === action.baseCount ? await service.undo(fresh) : fresh);
         }
@@ -166,5 +204,5 @@ export function useMatchScoring(matchId: string) {
     await load();
   }, [load]);
 
-  return { match, loadError, saving, saveError, submit, undo, retry, discardFailed, reload: load };
+  return { match, loadError, saving, saveError, submit, edit, undo, retry, discardFailed, reload: load };
 }

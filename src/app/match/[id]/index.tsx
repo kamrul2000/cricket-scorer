@@ -11,7 +11,7 @@ import { BallByBall } from '../../../components/scorecard/BallByBall';
 import { InningsScorecard } from '../../../components/scorecard/InningsScorecard';
 import { ErrorBanner, ErrorView, LoadingView } from '../../../components/StateViews';
 import { useMatchService } from '../../../data/AppDataProvider';
-import { matchSummary, teamName } from '../../../domain/format';
+import { inningsLabel, matchSummary, teamName, teamSizeText } from '../../../domain/format';
 import { formatLabel, formatMatchDate, formatMatchTime } from '../../../domain/schedule';
 import { useFocusLoad } from '../../../hooks/useFocusLoad';
 import { useGuardedAction } from '../../../hooks/useGuardedAction';
@@ -35,11 +35,17 @@ export default function MatchScorecardScreen() {
 
   const { state, setup } = match;
   const completed = state.result !== null;
-  const tabs = state.innings.flatMap((inn) => [
-    { value: `${inn.index}`, label: `${inn.battingTeam.name} card` },
-    { value: `${inn.index}b`, label: `${inn.index === 0 ? '1st' : '2nd'} inns balls` },
-  ]);
-  const selectedIndex = Number(tab[0]);
+  const tabs = state.innings.flatMap((inn) => {
+    const prefix = inn.superOver === null ? '' : `${inningsLabel(inn)}: `;
+    return [
+      { value: `${inn.index}`, label: `${prefix}${inn.battingTeam.name} card` },
+      {
+        value: `${inn.index}b`,
+        label: inn.superOver === null ? `${inningsLabel(inn).replace('innings', 'inns')} balls` : `${prefix}${inn.battingTeam.name} balls`,
+      },
+    ];
+  });
+  const selectedIndex = parseInt(tab, 10);
   const selected = state.innings[selectedIndex] ?? state.innings[0];
   const showBalls = tab.endsWith('b');
 
@@ -67,7 +73,7 @@ export default function MatchScorecardScreen() {
 
   const toss = `${teamName(setup, setup.toss.winnerTeamId)} won the toss and chose to ${setup.toss.decision}.`;
   const r = setup.rules;
-  const rules = `${formatLabel(match.details.formatName, r.oversPerInnings)} · ${r.playersPerSide} a side · free hit ${
+  const rules = `${formatLabel(match.details.formatName, r.oversPerInnings)} · ${teamSizeText(setup)} · free hit ${
     r.freeHitAfterNoBall ? 'on' : 'off'
   }${r.maxOversPerBowler ? ` · max ${r.maxOversPerBowler} overs per bowler` : ''}`;
 
@@ -91,7 +97,7 @@ export default function MatchScorecardScreen() {
       {!completed ? (
         <Button title="Resume scoring" onPress={() => router.dismissTo(`/match/${id}/score`)} />
       ) : (
-        <Button title="Open scoring screen (to undo)" variant="secondary" onPress={() => router.dismissTo(`/match/${id}/score`)} />
+        <Button title="Open scoring screen (to undo or edit)" variant="secondary" onPress={() => router.dismissTo(`/match/${id}/score`)} />
       )}
 
       {completed ? (

@@ -5,17 +5,20 @@
 //   are never split across pages.
 import type { ResolvedAwards } from '../domain/awards';
 import {
-  dismissalText,
+  battingStatus,
   economy,
   extrasLine,
   formatOvers,
+  inningsLabel,
   ordinal,
+  overBowlersText,
   playerName,
   resultText,
   roleSuffix,
   scoreText,
   strikeRate,
   teamName,
+  teamSizeText,
 } from '../domain/format';
 import { formatLabel, formatMatchDate, formatMatchTime } from '../domain/schedule';
 import type { InningsState, MatchState } from '../domain/scoring';
@@ -84,13 +87,12 @@ function table(head: string[], rows: string[][]): string {
 function inningsHtml(state: MatchState, inn: InningsState): string {
   const s = state.setup;
   const batted = new Set(inn.batters.map((b) => b.playerId));
-  const didNotBat = inn.battingTeam.players.filter((p) => !batted.has(p.playerId));
-  const atCrease = new Set([inn.strikerId, inn.nonStrikerId]);
+  const didNotBat = inn.superOver === null ? inn.battingTeam.players.filter((p) => !batted.has(p.playerId)) : [];
   const batting = table(
     ['Batter', '', 'R', 'B', '4s', '6s', 'SR'],
     inn.batters.map((b) => [
       `${esc(b.name)}${esc(roleSuffix(inn.battingTeam, b.playerId))}`,
-      `<span class="how">${esc(b.wicket ? dismissalText(s, b.wicket) : atCrease.has(b.playerId) && !inn.completed ? 'batting' : 'not out')}</span>`,
+      `<span class="how">${esc(battingStatus(s, inn, b))}</span>`,
       `<b>${b.runs}</b>`,
       String(b.ballsFaced),
       String(b.fours),
@@ -112,7 +114,7 @@ function inningsHtml(state: MatchState, inn: InningsState): string {
     ]),
   );
   const parts = [
-    `<h2>${esc(inn.battingTeam.name)} innings: ${scoreText(inn)} (${formatOvers(inn.legalBalls)} ov)${
+    `<h2>${inn.superOver === null ? '' : `${esc(inningsLabel(inn))}: `}${esc(inn.battingTeam.name)} innings: ${scoreText(inn)} (${formatOvers(inn.legalBalls)} ov)${
       inn.target !== null ? ` · target ${inn.target}` : ''
     }</h2>`,
     batting,
@@ -138,6 +140,13 @@ function inningsHtml(state: MatchState, inn: InningsState): string {
         .join(', ')}</p>`,
     );
   }
+  if (inn.retirements.length) {
+    parts.push(
+      `<p class="line"><b>Retirements:</b> ${inn.retirements
+        .map((r) => `${esc(playerName(s, r.playerId))} retired ${r.retirement} at ${r.teamRuns}/${r.wickets} (${formatOvers(r.legalBalls)} ov)`)
+        .join(', ')}</p>`,
+    );
+  }
   parts.push('<h3>Bowling</h3>', bowling);
   if (inn.partnerships.length) {
     parts.push(
@@ -145,7 +154,7 @@ function inningsHtml(state: MatchState, inn: InningsState): string {
       table(
         ['Wicket', 'Batters', 'Runs', 'Balls'],
         inn.partnerships.map((p) => [
-          `${ordinal(p.number)}${p.broken ? '' : ' (unbroken)'}`,
+          `${ordinal(p.number)}${p.broken ? '' : p.retired ? ' (retired hurt)' : ' (unbroken)'}`,
           `<span class="left">${esc(playerName(s, p.batterIds[0]))} ${p.batterRuns[0]}, ${esc(playerName(s, p.batterIds[1]))} ${p.batterRuns[1]}</span>`,
           `<b>${p.runs}</b>`,
           String(p.balls),
@@ -160,7 +169,7 @@ function inningsHtml(state: MatchState, inn: InningsState): string {
         ['Over', 'Bowler', 'Runs', 'Wkts', 'Score'],
         inn.overs.map((o) => [
           `${o.over + 1}${o.complete ? '' : ` (${o.legalBalls} b)`}`,
-          esc(playerName(s, o.bowlerId)),
+          esc(overBowlersText(s, o)),
           String(o.runs),
           String(o.wickets),
           `${o.totalRuns}/${o.totalWickets}`,
@@ -180,7 +189,7 @@ export function scorecardHtml(doc: ScorecardDocument): string {
     `${formatMatchDate(doc.startedAt)}, ${formatMatchTime(doc.startedAt)}`,
     details.venue || null,
     formatLabel(details.formatName, s.rules.oversPerInnings),
-    `${s.rules.playersPerSide} a side`,
+    teamSizeText(s),
   ].filter(Boolean);
   const toss = `${teamName(s, s.toss.winnerTeamId)} won the toss and chose to ${s.toss.decision}.`;
   const award = (label: string, text: string | null) =>

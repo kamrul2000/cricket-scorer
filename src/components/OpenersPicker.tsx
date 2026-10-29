@@ -16,11 +16,16 @@ interface Props {
   bowling: TeamLineup;
   value: Openers;
   onChange: (value: Openers) => void;
+  /** Players who may not be chosen, with the reason (Super Over eligibility). */
+  unavailable?: ReadonlyMap<string, string>;
 }
 
-export function OpenersPicker({ batting, bowling, value, onChange }: Props) {
+export function OpenersPicker({ batting, bowling, value, onChange, unavailable }: Props) {
   const batters = (other: string | null) =>
-    batting.players.map((p) => ({ ...p, disabledReason: p.playerId === other ? 'Already chosen' : null }));
+    batting.players.map((p) => ({
+      ...p,
+      disabledReason: unavailable?.get(p.playerId) ?? (p.playerId === other ? 'Already chosen' : null),
+    }));
   return (
     <View style={styles.wrap}>
       <Text style={styles.heading}>Striker (faces the first ball) · {batting.name}</Text>
@@ -37,7 +42,7 @@ export function OpenersPicker({ batting, bowling, value, onChange }: Props) {
       />
       <Text style={styles.heading}>Opening bowler · {bowling.name}</Text>
       <PlayerPicker
-        players={bowling.players}
+        players={bowling.players.map((p) => ({ ...p, disabledReason: unavailable?.get(p.playerId) ?? null }))}
         selectedIds={value.bowlerId ? [value.bowlerId] : []}
         onToggle={(id) => onChange({ ...value, bowlerId: id })}
       />

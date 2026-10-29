@@ -3,7 +3,19 @@
 import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { dismissalText, economy, extrasLine, formatOvers, ordinal, playerName, roleSuffix, scoreText, strikeRate } from '../../domain/format';
+import {
+  battingStatus,
+  economy,
+  extrasLine,
+  formatOvers,
+  inningsLabel,
+  ordinal,
+  overBowlersText,
+  playerName,
+  roleSuffix,
+  scoreText,
+  strikeRate,
+} from '../../domain/format';
 import type { InningsState, MatchState } from '../../domain/scoring';
 import { colors, font, radius, spacing } from '../../theme/theme';
 
@@ -16,13 +28,19 @@ function Cell({ children, wide, bold, muted }: { children: ReactNode; wide?: boo
 }
 
 export function InningsScorecard({ state, inn }: { state: MatchState; inn: InningsState }) {
-  const atCrease = new Set([inn.strikerId, inn.nonStrikerId]);
   const batted = new Set(inn.batters.map((b) => b.playerId));
-  const didNotBat = inn.battingTeam.players.filter((p) => !batted.has(p.playerId));
+  // In a Super Over only a few batters are needed, so "did not bat" is not listed.
+  const didNotBat = inn.superOver === null ? inn.battingTeam.players.filter((p) => !batted.has(p.playerId)) : [];
   const ex = inn.extras;
 
   return (
     <View style={styles.wrap}>
+      {inn.superOver !== null ? (
+        <Text style={styles.superOver}>
+          {inningsLabel(inn).toUpperCase()}
+          {inn.target !== null ? ` · target ${inn.target}` : ''}
+        </Text>
+      ) : null}
       <View style={styles.totalRow}>
         <Text style={styles.teamName}>{inn.battingTeam.name}</Text>
         <Text style={styles.total}>
@@ -47,9 +65,7 @@ export function InningsScorecard({ state, inn }: { state: MatchState; inn: Innin
                 {roleSuffix(inn.battingTeam, b.playerId)}
                 {b.playerId === inn.strikerId && !inn.completed ? ' *' : ''}
               </Text>
-              <Text style={styles.how}>
-                {b.wicket ? dismissalText(state.setup, b.wicket) : atCrease.has(b.playerId) && !inn.completed ? 'batting' : 'not out'}
-              </Text>
+              <Text style={styles.how}>{battingStatus(state.setup, inn, b)}</Text>
             </View>
             <Cell bold>{b.runs}</Cell>
             <Cell>{b.ballsFaced}</Cell>
@@ -80,6 +96,14 @@ export function InningsScorecard({ state, inn }: { state: MatchState; inn: Innin
           <Text style={styles.bold}>Fall of wickets: </Text>
           {inn.fallOfWickets
             .map((f) => `${f.wicketNumber}-${f.teamRuns} (${playerName(state.setup, f.playerOutId)}, ${formatOvers(f.legalBalls)} ov)`)
+            .join(', ')}
+        </Text>
+      ) : null}
+      {inn.retirements.length ? (
+        <Text style={styles.line}>
+          <Text style={styles.bold}>Retirements: </Text>
+          {inn.retirements
+            .map((r) => `${playerName(state.setup, r.playerId)} retired ${r.retirement} at ${r.teamRuns}/${r.wickets} (${formatOvers(r.legalBalls)} ov)`)
             .join(', ')}
         </Text>
       ) : null}
@@ -122,11 +146,11 @@ export function InningsScorecard({ state, inn }: { state: MatchState; inn: Innin
             <Cell bold>Runs</Cell>
             <Cell bold>Balls</Cell>
           </View>
-          {inn.partnerships.map((p) => (
-            <View key={p.number} style={styles.row}>
+          {inn.partnerships.map((p, i) => (
+            <View key={i} style={styles.row}>
               <View style={styles.wideBox}>
                 <Text style={styles.name}>
-                  {ordinal(p.number)} wkt{p.broken ? '' : ' (unbroken)'}
+                  {ordinal(p.number)} wkt{p.broken ? '' : p.retired ? ' (retired hurt)' : ' (unbroken)'}
                 </Text>
                 <Text style={styles.how}>
                   {playerName(state.setup, p.batterIds[0])} {p.batterRuns[0]}, {playerName(state.setup, p.batterIds[1])}{' '}
@@ -155,7 +179,7 @@ export function InningsScorecard({ state, inn }: { state: MatchState; inn: Innin
                   Over {o.over + 1}
                   {o.complete ? '' : ` (${o.legalBalls} ${o.legalBalls === 1 ? 'ball' : 'balls'})`}
                 </Text>
-                <Text style={styles.how}>{playerName(state.setup, o.bowlerId)}</Text>
+                <Text style={styles.how}>{overBowlersText(state.setup, o)}</Text>
               </View>
               <Cell bold>{o.runs}</Cell>
               <Cell>{o.wickets}</Cell>
@@ -172,6 +196,7 @@ export function InningsScorecard({ state, inn }: { state: MatchState; inn: Innin
 
 const styles = StyleSheet.create({
   wrap: { gap: spacing.sm },
+  superOver: { fontSize: font.small, fontWeight: '800', color: colors.primary },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   teamName: { fontSize: font.title, fontWeight: '800', color: colors.text, flex: 1 },
   total: { fontSize: font.title, fontWeight: '800', color: colors.text },

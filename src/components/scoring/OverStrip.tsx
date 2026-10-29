@@ -1,35 +1,50 @@
-// Deliveries of the current (or just finished) over as coloured balls.
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+// Deliveries of the current (or just finished) over as coloured balls. Tapping a ball (when
+// `onSelectBall` is given) opens it for editing.
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { deliveryLabel } from '../../domain/format';
 import type { DeliveryRecord, InningsState } from '../../domain/scoring';
 import { colors, font, spacing } from '../../theme/theme';
 
-export function BallChip({ d }: { d: DeliveryRecord }) {
+export function BallChip({ d, onPress }: { d: DeliveryRecord; onPress?: () => void }) {
   const style = d.wicket ? styles.wicket : d.isSix || d.isFour ? styles.boundary : !d.isLegalBall ? styles.extra : styles.normal;
   const text = d.wicket || d.isFour || d.isSix ? styles.lightText : styles.darkText;
-  return (
+  const chip = (
     <View style={[styles.ball, style]}>
       <Text style={[styles.ballText, text]} numberOfLines={1} adjustsFontSizeToFit>
         {deliveryLabel(d)}
       </Text>
     </View>
   );
+  if (!onPress) return chip;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ball ${deliveryLabel(d)}, over ${d.over + 1}`}
+      style={({ pressed }) => pressed && styles.pressed}
+    >
+      {chip}
+    </Pressable>
+  );
 }
 
-export function OverStrip({ inn }: { inn: InningsState }) {
+export function OverStrip({ inn, onSelectBall }: { inn: InningsState; onSelectBall?: (eventIndex: number) => void }) {
   const last = inn.deliveries[inn.deliveries.length - 1];
   const over = last?.over ?? 0;
   const balls = inn.deliveries.filter((d) => d.over === over);
   return (
     <View style={styles.wrap}>
-      <Text style={styles.label}>Over {over + 1}</Text>
+      <Text style={styles.label}>
+        Over {over + 1}
+        {onSelectBall && balls.length ? '  ·  tap a ball to edit it' : ''}
+      </Text>
       {balls.length === 0 ? (
         <Text style={styles.empty}>No deliveries yet</Text>
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
           {balls.map((d) => (
-            <BallChip key={d.eventIndex} d={d} />
+            <BallChip key={d.eventIndex} d={d} onPress={onSelectBall ? () => onSelectBall(d.eventIndex) : undefined} />
           ))}
         </ScrollView>
       )}
@@ -50,4 +65,5 @@ const styles = StyleSheet.create({
   ballText: { fontSize: font.small, fontWeight: '800' },
   darkText: { color: colors.text },
   lightText: { color: colors.onPrimary },
+  pressed: { opacity: 0.6 },
 });

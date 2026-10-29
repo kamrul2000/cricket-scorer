@@ -3,11 +3,13 @@ import { BALLS_PER_OVER, type MatchEvent, type MatchSetup, type TeamLineup } fro
 import {
   currentInnings,
   extrasTotal,
+  type BatterStats,
   type DeliveryRecord,
   type Extras,
   type InningsState,
   type MatchResult,
   type MatchState,
+  type OverSummary,
   type WicketRecord,
 } from './scoring';
 
@@ -53,7 +55,7 @@ export interface ChaseInfo {
 export function chaseInfo(state: MatchState, inn: InningsState): ChaseInfo | null {
   if (inn.target === null) return null;
   const runsNeeded = Math.max(0, inn.target - inn.runs);
-  const ballsRemaining = state.setup.rules.oversPerInnings * BALLS_PER_OVER - inn.legalBalls;
+  const ballsRemaining = inn.oversLimit * BALLS_PER_OVER - inn.legalBalls;
   return {
     target: inn.target,
     runsNeeded,
@@ -63,6 +65,22 @@ export function chaseInfo(state: MatchState, inn: InningsState): ChaseInfo | nul
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** "Super Over", "2nd Super Over", ... */
+export function superOverName(n: number): string {
+  return n === 1 ? 'Super Over' : `${ordinal(n)} Super Over`;
+}
+
+/** "1st innings", "2nd innings", "Super Over", "2nd Super Over", ... */
+export function inningsLabel(inn: InningsState): string {
+  return inn.superOver === null ? `${inn.index === 0 ? '1st' : '2nd'} innings` : superOverName(inn.superOver);
+}
+
+/** "11 a side", or "11 v 10 players" when the lineups differ (in team order). */
+export function teamSizeText(setup: MatchSetup): string {
+  const [a, b] = setup.teams.map((t) => t.players.length);
+  return a === b ? `${a} a side` : `${a} v ${b} players`;
+}
 
 export function resultText(setup: MatchSetup, result: MatchResult): string {
   switch (result.type) {
@@ -74,6 +92,10 @@ export function resultText(setup: MatchSetup, result: MatchResult): string {
       return `${teamName(setup, result.winnerTeamId)} won by ${plural(result.runs, 'run')}`;
     case 'winByWickets':
       return `${teamName(setup, result.winnerTeamId)} won by ${plural(result.wickets, 'wicket')} (${plural(result.ballsRemaining, 'ball')} left)`;
+    case 'superOverTie':
+      return `Match tied · ${superOverName(result.superOvers)} tied`;
+    case 'superOverWin':
+      return `Match tied · ${teamName(setup, result.winnerTeamId)} won the ${superOverName(result.superOvers)}`;
   }
 }
 
@@ -82,6 +104,8 @@ export function dismissalText(setup: MatchSetup, w: WicketRecord): string {
   const bowler = playerName(setup, w.bowlerId);
   const fielder = playerName(setup, w.fielderId);
   switch (w.kind) {
+    case 'retiredOut':
+      return 'retired out';
     case 'bowled':
       return `b ${bowler}`;
     case 'lbw':
@@ -113,6 +137,19 @@ export function deliveryLabel(d: DeliveryRecord): string {
 /** "45/2" */
 export function scoreText(inn: InningsState): string {
   return `${inn.runs}/${inn.wickets}`;
+}
+
+/** The scorecard's "how out" column: "c Smith b Jones", "retired hurt", "batting" or "not out". */
+export function battingStatus(setup: MatchSetup, inn: InningsState, b: BatterStats): string {
+  if (b.wicket) return dismissalText(setup, b.wicket);
+  if (b.retiredHurt) return 'retired hurt';
+  const atCrease = b.playerId === inn.strikerId || b.playerId === inn.nonStrikerId;
+  return atCrease && !inn.completed ? 'batting' : 'not out';
+}
+
+/** "Khan", or "Khan & Ali" when a bowler was replaced during the over. */
+export function overBowlersText(setup: MatchSetup, o: OverSummary): string {
+  return o.bowlerIds.map((id) => playerName(setup, id)).join(' & ');
 }
 
 /** Batting strike rate: runs per 100 balls faced. */
@@ -157,7 +194,11 @@ export function matchSummary(state: MatchState): string {
   if (state.result) return resultText(state.setup, state.result);
   const inn = currentInnings(state);
   if (!inn) return 'Not started';
-  const head = `${inn.battingTeam.name} ${scoreText(inn)} (${formatOvers(inn.legalBalls)} ov)`;
+  if (state.next.type === 'selectOpeners' && state.next.inningsIndex >= 2 && state.next.inningsIndex % 2 === 0) {
+    return `Match tied, ${superOverName(state.next.inningsIndex / 2)} to come`;
+  }
+  const prefix = inn.superOver === null ? '' : `${superOverName(inn.superOver)}: `;
+  const head = `${prefix}${inn.battingTeam.name} ${scoreText(inn)} (${formatOvers(inn.legalBalls)} ov)`;
   if (inn.completed) return `${head}, innings break`;
   const chase = chaseInfo(state, inn);
   return chase ? `${head}, need ${chase.runsNeeded} from ${chase.ballsRemaining} balls` : head;
@@ -178,7 +219,15 @@ export function describeLastEvent(state: MatchState, events: readonly MatchEvent
     case 'swapBatters':
       return 'Batters swapped (scorer correction)';
     case 'abandon':
-      return 'Match abandoned (no result)';
+      return 'Match abandoned';
+    case 'retire':
+      return `${name(event.playerId)} retired ${event.retirement === 'hurt' ? 'hurt' : 'out'}`;
+    case 'replaceBowler':
+      return `${name(event.playerId)} took over the bowling`;
+    case 'endInnings':
+      return 'Innings ended: no one else could bat';
+    case 'superOver':
+      return 'Super Over started';
     case 'delivery': {
       const index = events.length - 1;
       const record = state.innings.flatMap((i) => i.deliveries).find((d) => d.eventIndex === index);
@@ -196,4 +245,5 @@ export const DISMISSAL_LABELS: Record<WicketRecord['kind'], string> = {
   stumped: 'Stumped',
   hitWicket: 'Hit wicket',
   runOut: 'Run out',
+  retiredOut: 'Retired out',
 };

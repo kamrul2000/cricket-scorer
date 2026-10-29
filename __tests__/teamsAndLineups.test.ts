@@ -108,7 +108,7 @@ describe('lineups, captains and substitutes', () => {
     const tB = await repos.teams.create('B', [ps[3].id, ps[4].id, ps[5].id]);
     const p = (i: number) => ({ playerId: ps[i].id, name: ps[i].name });
     const setup: MatchSetup = {
-      rules: { oversPerInnings: 1, playersPerSide: 2, freeHitAfterNoBall: true, maxOversPerBowler: null },
+      rules: { oversPerInnings: 1, freeHitAfterNoBall: true, maxOversPerBowler: null },
       teams: [
         { teamId: tA.id, name: 'A', players: [p(0), p(1)], substitutes: [p(2)], captainId: ps[1].id, viceCaptainId: ps[0].id },
         { teamId: tB.id, name: 'B', players: [p(3), p(4)], substitutes: [p(5)] },
@@ -129,7 +129,7 @@ describe('awards storage', () => {
     const tB = await a.repos.teams.create('B', [a.ps[3].id, a.ps[4].id]);
     const p = (i: number) => ({ playerId: a.ps[i].id, name: a.ps[i].name });
     const setup: MatchSetup = {
-      rules: { oversPerInnings: 1, playersPerSide: 2, freeHitAfterNoBall: true, maxOversPerBowler: null },
+      rules: { oversPerInnings: 1, freeHitAfterNoBall: true, maxOversPerBowler: null },
       teams: [
         { teamId: tA.id, name: 'A', players: [p(0), p(1)] },
         { teamId: tB.id, name: 'B', players: [p(3), p(4)] },

@@ -67,12 +67,15 @@ describe('match setup validation', () => {
     expect(validateMatchSetup(makeSetup(opts)).join(' ')).toMatch(message);
   });
 
-  it('rejects the same team twice, wrong lineup sizes, and a player in both lineups', () => {
+  it('rejects the same team twice, a lineup outside 2 to 11 players, and a player in both lineups', () => {
     const s = makeSetup({ playersPerSide: 3 });
     expect(validateMatchSetup({ ...s, teams: [s.teams[0], { ...s.teams[1], teamId: 'team-a' }] }).join(' ')).toMatch(/different teams/);
 
+    // The teams may have different numbers of players (3 v 2 here), but at least 2 each.
     const short = { ...s.teams[1], players: s.teams[1].players.slice(0, 2) };
-    expect(validateMatchSetup({ ...s, teams: [s.teams[0], short] }).join(' ')).toMatch(/exactly 3 players/);
+    expect(validateMatchSetup({ ...s, teams: [s.teams[0], short] })).toEqual([]);
+    const tooShort = { ...s.teams[1], players: s.teams[1].players.slice(0, 1) };
+    expect(validateMatchSetup({ ...s, teams: [s.teams[0], tooShort] }).join(' ')).toMatch(/Players per side must be from 2 to 11: Bravo has 1/);
 
     const shared = { ...s.teams[1], players: [s.teams[0].players[0], ...s.teams[1].players.slice(1)] };
     expect(validateMatchSetup({ ...s, teams: [s.teams[0], shared] }).join(' ')).toMatch(/more than once/);

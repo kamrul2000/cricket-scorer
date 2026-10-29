@@ -11,7 +11,7 @@ describe('partnerships', () => {
       .ball({ ballType: 'wide', runs: 0 }) // 1 wide, no ball faced
       .ball({ runsFrom: 'legByes', runs: 2 }); // 2 leg byes, ball faced, no bat runs
     const [p] = m.innings.partnerships;
-    expect(p).toEqual({ number: 1, batterIds: ['a1', 'a2'], batterRuns: [1, 4], runs: 8, balls: 3, broken: false });
+    expect(p).toEqual({ number: 1, batterIds: ['a1', 'a2'], batterRuns: [1, 4], runs: 8, balls: 3, broken: false, retired: false });
   });
 
   it('a wicket breaks the partnership; the survivor and the new batter start the next one', () => {
@@ -50,8 +50,8 @@ describe('over-by-over summary', () => {
     m.ball({ runs: 1 }).ball({ ballType: 'wide' }).balls(0, 4, 0, 0).ball({ dismissal: out.bowled() });
     m.batter('a3').bowler('b2').ball({ runs: 2 });
     expect(m.innings.overs).toEqual([
-      { over: 0, bowlerId: 'b1', runs: 6, wickets: 1, legalBalls: 6, totalRuns: 6, totalWickets: 1, complete: true },
-      { over: 1, bowlerId: 'b2', runs: 2, wickets: 0, legalBalls: 1, totalRuns: 8, totalWickets: 1, complete: false },
+      { over: 0, bowlerIds: ['b1'], runs: 6, wickets: 1, legalBalls: 6, totalRuns: 6, totalWickets: 1, complete: true },
+      { over: 1, bowlerIds: ['b2'], runs: 2, wickets: 0, legalBalls: 1, totalRuns: 8, totalWickets: 1, complete: false },
     ]);
   });
 

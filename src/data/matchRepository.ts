@@ -61,6 +61,7 @@ export interface MatchRow {
   team_b_id: string;
   team_b_name: string;
   overs_per_innings: number;
+  /** The larger lineup size, for information only: the scoring uses the lineups themselves. */
   players_per_side: number;
   free_hit_after_no_ball: number;
   max_overs_per_bowler: number | null;
@@ -121,7 +122,6 @@ export function storedMatchFromRows(m: MatchRow, players: readonly MatchPlayerRo
   const setup: MatchSetup = {
     rules: {
       oversPerInnings: m.overs_per_innings,
-      playersPerSide: m.players_per_side,
       freeHitAfterNoBall: m.free_hit_after_no_ball === 1,
       maxOversPerBowler: m.max_overs_per_bowler,
     },
@@ -177,7 +177,7 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
             b.teamId,
             b.name,
             r.oversPerInnings,
-            r.playersPerSide,
+            Math.max(a.players.length, b.players.length),
             r.freeHitAfterNoBall ? 1 : 0,
             r.maxOversPerBowler,
             setup.toss.winnerTeamId,
@@ -299,6 +299,48 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
         if (result.changes !== 1) throw new RepositoryError('DAMAGED', 'The last event of this match could not be found.');
         await tx.run('UPDATE matches SET event_count = ?, status = ?, summary = ?, updated_at = ? WHERE id = ?', [
           expectedCount - 1,
+          update.status,
+          update.summary,
+          deps.now(),
+          matchId,
+        ]);
+        simulatedFailure(options);
+      });
+    },
+
+    /**
+     * Replaces the events from `fromSeq` to the end with `items` (an edited delivery and the
+     * replayed actions after it), in one transaction with the match row update. The history
+     * must still have `expectedCount` events and keeps that length. Each rewritten row keeps
+     * the time it was first recorded.
+     */
+    async replaceEventsFrom(
+      matchId: string,
+      fromSeq: number,
+      expectedCount: number,
+      items: readonly EventToStore[],
+      update: MatchRowUpdate,
+      options?: WriteOptions,
+    ): Promise<void> {
+      if (fromSeq < 0 || fromSeq + items.length !== expectedCount) {
+        throw new RepositoryError('CONFLICT', 'The edited match history has the wrong length.');
+      }
+      await db.transaction(async (tx) => {
+        const m = await tx.first<{ event_count: number }>('SELECT event_count FROM matches WHERE id = ?', [matchId]);
+        if (!m) throw new RepositoryError('NOT_FOUND', 'This match no longer exists.');
+        if (m.event_count !== expectedCount) {
+          throw new RepositoryError('CONFLICT', 'The saved match is not in the expected state. Reload and try again.');
+        }
+        const times = await tx.all<{ seq: number; created_at: string }>(
+          'SELECT seq, created_at FROM match_events WHERE match_id = ? AND seq >= ? ORDER BY seq',
+          [matchId, fromSeq],
+        );
+        if (times.length !== items.length) throw new RepositoryError('DAMAGED', 'The saved history of this match is incomplete.');
+        await tx.run('DELETE FROM match_events WHERE match_id = ? AND seq >= ?', [matchId, fromSeq]);
+        for (let i = 0; i < items.length; i++) {
+          await tx.run(INSERT_EVENT_SQL, [matchId, times[i].created_at, ...rowValues(eventToRow(fromSeq + i, items[i]))]);
+        }
+        await tx.run('UPDATE matches SET status = ?, summary = ?, updated_at = ? WHERE id = ?', [
           update.status,
           update.summary,
           deps.now(),

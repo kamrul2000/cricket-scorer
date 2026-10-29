@@ -48,6 +48,11 @@ function parseWhole(text: string): number | null {
   return /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
 }
 
+const sizeOptions = Array.from({ length: MAX_PLAYERS_PER_SIDE - MIN_PLAYERS_PER_SIDE + 1 }, (_, i) => ({
+  value: i + MIN_PLAYERS_PER_SIDE,
+  label: String(i + MIN_PLAYERS_PER_SIDE),
+}));
+
 export default function NewMatchScreen() {
   const { scheduleId } = useLocalSearchParams<{ scheduleId?: string }>();
   const { teams, players, schedules } = useRepositories();
@@ -83,6 +88,9 @@ export default function NewMatchScreen() {
   const [teamAId, setTeamAId] = useState<string | null>(null);
   const [teamBId, setTeamBId] = useState<string | null>(null);
   const [playersPerSide, setPlayersPerSide] = useState(11);
+  /** Team 2's lineup size when the teams have different numbers of players. */
+  const [unequal, setUnequal] = useState(false);
+  const [playersB, setPlayersB] = useState(11);
   const [oversText, setOversText] = useState('20');
   const [freeHit, setFreeHit] = useState(true);
   const [maxOversText, setMaxOversText] = useState('');
@@ -127,6 +135,8 @@ export default function NewMatchScreen() {
 
   const teamA = data?.find((t) => t.id === teamAId) ?? null;
   const teamB = data?.find((t) => t.id === teamBId) ?? null;
+  const sizeA = playersPerSide;
+  const sizeB = unequal ? playersB : playersPerSide;
 
   const setup: MatchSetup | null = useMemo(() => {
     if (!teamA || !teamB || !tossWinner || !decision) return null;
@@ -143,14 +153,13 @@ export default function NewMatchScreen() {
     return {
       rules: {
         oversPerInnings: parseWhole(oversText) ?? 0,
-        playersPerSide,
         freeHitAfterNoBall: freeHit,
         maxOversPerBowler: maxOversText.trim() === '' ? null : (parseWhole(maxOversText) ?? 0),
       },
       teams: [pick(teamA, lineupA, subsA, leadersA), pick(teamB, lineupB, subsB, leadersB)],
       toss: { winnerTeamId: tossWinner, decision },
     };
-  }, [teamA, teamB, tossWinner, decision, oversText, playersPerSide, freeHit, maxOversText, lineupA, lineupB, subsA, subsB, leadersA, leadersB]);
+  }, [teamA, teamB, tossWinner, decision, oversText, freeHit, maxOversText, lineupA, lineupB, subsA, subsB, leadersA, leadersB]);
 
   if (error && !data) return <ErrorView message={error} onRetry={reload} />;
   if (!data || (fromSchedule && !prefilled && scheduleLoad.loading)) return <LoadingView />;
@@ -204,17 +213,20 @@ export default function NewMatchScreen() {
         if (maxOversText.trim() !== '' && !(parseWhole(maxOversText)! > 0)) {
           return 'Maximum overs per bowler must be a whole number above 0, or left blank for no limit.';
         }
-        for (const t of [teamA, teamB]) {
-          if (t.players.length < playersPerSide) {
-            return `${t.name} has only ${t.players.length} active players. Add players to the team or lower players per side.`;
+        for (const [t, size] of [
+          [teamA, sizeA],
+          [teamB, sizeB],
+        ] as const) {
+          if (t.players.length < size) {
+            return `${t.name} has only ${t.players.length} active players. Add players to the team or choose fewer players.`;
           }
         }
         return null;
       }
       case 1:
-        return lineupA.length === playersPerSide ? null : `Choose exactly ${playersPerSide} players for ${teamA?.name}.`;
+        return lineupA.length === sizeA ? null : `Choose exactly ${sizeA} players for ${teamA?.name}.`;
       case 2:
-        return lineupB.length === playersPerSide ? null : `Choose exactly ${playersPerSide} players for ${teamB?.name}.`;
+        return lineupB.length === sizeB ? null : `Choose exactly ${sizeB} players for ${teamB?.name}.`;
       case 3: {
         if (!tossWinner || !decision) return 'Record who won the toss and what they chose.';
         if (!setup) return 'Setup is incomplete.';
@@ -233,8 +245,8 @@ export default function NewMatchScreen() {
     if (step === 0) {
       // Drop lineup picks that no longer fit the chosen teams or size.
       const fits = (team: TeamOption) => (id: string) => team.players.some((p) => p.playerId === id);
-      setLineupA((ids) => ids.filter(fits(teamA!)).slice(0, playersPerSide));
-      setLineupB((ids) => ids.filter(fits(teamB!)).slice(0, playersPerSide));
+      setLineupA((ids) => ids.filter(fits(teamA!)).slice(0, sizeA));
+      setLineupB((ids) => ids.filter(fits(teamB!)).slice(0, sizeB));
       setSubsA((ids) => ids.filter(fits(teamA!)));
       setSubsB((ids) => ids.filter(fits(teamB!)));
       // Start from each team's own captain and vice-captain.
@@ -274,6 +286,8 @@ export default function NewMatchScreen() {
 
   interface LineupSide {
     team: TeamOption;
+    /** Players this team fields. */
+    size: number;
     list: string[];
     setList: (l: string[]) => void;
     subs: string[];
@@ -283,7 +297,7 @@ export default function NewMatchScreen() {
   }
 
   const lineupStep = (side: LineupSide, other: { name: string; list: string[]; subs: string[] }) => {
-    const { team, list, setList, subs, setSubs, leaders, setLeaders } = side;
+    const { team, size, list, setList, subs, setSubs, leaders, setLeaders } = side;
     const elsewhere = (id: string) =>
       other.list.includes(id) ? `Playing for ${other.name}` : other.subs.includes(id) ? `Substitute for ${other.name}` : null;
     const benchable = team.players.filter((p) => !list.includes(p.playerId));
@@ -295,9 +309,9 @@ export default function NewMatchScreen() {
     return (
       <>
         <Text style={styles.lead}>
-          Choose {playersPerSide} players for {team.name}. {list.length} of {playersPerSide} selected.
+          Choose {size} players for {team.name}. {list.length} of {size} selected.
         </Text>
-        {team.players.length === playersPerSide && list.length !== playersPerSide ? (
+        {team.players.length === size && list.length !== size ? (
           <Button title="Select all" variant="secondary" onPress={() => setList(team.players.map((p) => p.playerId).filter((id) => !elsewhere(id)))} />
         ) : null}
         <PlayerPicker
@@ -305,7 +319,7 @@ export default function NewMatchScreen() {
           players={team.players.map((p) => ({
             ...p,
             disabledReason:
-              elsewhere(p.playerId) ?? (!list.includes(p.playerId) && list.length >= playersPerSide ? 'Lineup is full' : null),
+              elsewhere(p.playerId) ?? (!list.includes(p.playerId) && list.length >= size ? 'Lineup is full' : null),
           }))}
           selectedIds={list}
           onToggle={(id) => {
@@ -331,7 +345,7 @@ export default function NewMatchScreen() {
           </>
         ) : null}
 
-        {list.length === playersPerSide && benchable.length ? (
+        {list.length === size && benchable.length ? (
           <>
             <Text style={styles.heading}>Substitutes (optional)</Text>
             <Text style={styles.help}>
@@ -381,18 +395,30 @@ export default function NewMatchScreen() {
                 if (f?.overs) setOversText(String(f.overs));
               }}
             />
-            <Text style={styles.heading}>Players per side</Text>
-            <Chips
-              options={Array.from({ length: MAX_PLAYERS_PER_SIDE - MIN_PLAYERS_PER_SIDE + 1 }, (_, i) => {
-                const n = i + MIN_PLAYERS_PER_SIDE;
-                return { value: n, label: String(n) };
-              })}
-              value={playersPerSide}
-              onChange={setPlayersPerSide}
-            />
-            <Text style={styles.help}>
-              Both teams use the same number. A side is all out when only one batter is left.
-            </Text>
+            <Text style={styles.heading}>{unequal ? `Players for ${teamA?.name ?? 'Team 1'}` : 'Players per side'}</Text>
+            <Chips options={sizeOptions} value={playersPerSide} onChange={setPlayersPerSide} />
+            <View style={styles.switchRow}>
+              <View style={styles.switchText}>
+                <Text style={styles.heading}>Teams have different numbers of players</Text>
+                <Text style={styles.help}>For example 11 v 10 when a player is missing.</Text>
+              </View>
+              <Switch
+                value={unequal}
+                onValueChange={(on) => {
+                  setUnequal(on);
+                  if (on) setPlayersB(playersPerSide);
+                }}
+                trackColor={{ true: colors.primary, false: colors.border }}
+                accessibilityLabel="Teams have different numbers of players"
+              />
+            </View>
+            {unequal ? (
+              <>
+                <Text style={styles.heading}>Players for {teamB?.name ?? 'Team 2'}</Text>
+                <Chips options={sizeOptions} value={playersB} onChange={setPlayersB} />
+              </>
+            ) : null}
+            <Text style={styles.help}>A side is all out when only one of its batters is left.</Text>
             <TextField label="Overs per innings" value={oversText} onChangeText={setOversText} keyboardType="number-pad" maxLength={3} />
             <View style={styles.switchRow}>
               <View style={styles.switchText}>
@@ -414,13 +440,13 @@ export default function NewMatchScreen() {
 
         {step === 1 && teamA
           ? lineupStep(
-              { team: teamA, list: lineupA, setList: setLineupA, subs: subsA, setSubs: setSubsA, leaders: leadersA, setLeaders: setLeadersA },
+              { team: teamA, size: sizeA, list: lineupA, setList: setLineupA, subs: subsA, setSubs: setSubsA, leaders: leadersA, setLeaders: setLeadersA },
               { name: teamB?.name ?? '', list: lineupB, subs: subsB },
             )
           : null}
         {step === 2 && teamB
           ? lineupStep(
-              { team: teamB, list: lineupB, setList: setLineupB, subs: subsB, setSubs: setSubsB, leaders: leadersB, setLeaders: setLeadersB },
+              { team: teamB, size: sizeB, list: lineupB, setList: setLineupB, subs: subsB, setSubs: setSubsB, leaders: leadersB, setLeaders: setLeadersB },
               { name: teamA?.name ?? '', list: lineupA, subs: subsA },
             )
           : null}
