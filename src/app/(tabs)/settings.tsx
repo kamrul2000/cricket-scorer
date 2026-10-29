@@ -6,12 +6,14 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { DEVELOPER } from '../../appInfo';
 import { Button } from '../../components/Button';
 import { useAppData } from '../../data/AppDataProvider';
+import { usePlayIntro } from '../../intro/IntroHost';
 import { faultInjection } from '../../services/matchService';
 import { colors, font, radius, spacing } from '../../theme/theme';
 
 export default function SettingsScreen() {
   const { schemaVersion } = useAppData();
   const router = useRouter();
+  const playIntro = usePlayIntro();
   const appVersion = Constants.expoConfig?.version ?? 'unknown';
   const [armed, setArmed] = useState(faultInjection.failNextSave);
   // The flag clears itself after one failed save, so re-read it whenever this tab is shown.
@@ -23,6 +25,7 @@ export default function SettingsScreen() {
         <Text style={styles.heading}>About</Text>
         <Text style={styles.line}>Cricket Scorer, version {appVersion}</Text>
         <Text style={styles.line}>Database schema version {schemaVersion}</Text>
+        <Button title="Play the intro" variant="secondary" onPress={playIntro} />
       </View>
       <View style={styles.card}>
         <Text style={styles.heading}>Your data</Text>

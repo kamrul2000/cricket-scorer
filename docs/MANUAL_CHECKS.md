@@ -129,6 +129,17 @@ restore. These checks cover what only a real phone can show. Run them on the **r
       of the first Super Over are shown as not allowed.
 - [ ] PDF and image exports of a Super Over match show the Super Over innings.
 
+## Icon, splash screen and intro (release APK)
+
+- [ ] The home-screen icon is the white batter with the gold ball on green, in round and
+      rounded-square launchers, and in Android 13+ themed icons (single colour).
+- [ ] Opening the app shows the batter on dark green (splash), with no white flash after it.
+- [ ] First launch after installing: the intro plays (logo, app name, "Developed by…", the ground,
+      the two match photos) and fades into the app. Close and reopen: it does not play again.
+- [ ] Skip, and the Android back button, both end the intro at once.
+- [ ] Settings > "Play the intro" plays it again.
+- [ ] With Android "Remove animations" on, a still title card shows briefly instead.
+
 ## Upgrading from the Stage 4 app
 
 - [ ] Install the Stage 4 APK, score part of a match, then install this version over it
