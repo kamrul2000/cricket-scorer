@@ -1,5 +1,6 @@
 // The main input controls. One tap records common deliveries; extras and wickets open the
-// detailed delivery editor.
+// detailed delivery editor. The rows share the height they are given, so the pad fills the rest
+// of the scoring screen without scrolling.
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { BallType, RunsFrom } from '../../domain/match';
@@ -34,6 +35,7 @@ function PadButton({
   tone?: 'plain' | 'boundary' | 'extra' | 'wicket' | 'undo';
   accessibilityLabel?: string;
 }) {
+  const light = tone === 'boundary' || tone === 'wicket';
   return (
     <Pressable
       accessibilityRole="button"
@@ -42,8 +44,10 @@ function PadButton({
       onPress={disabled ? undefined : onPress}
       style={({ pressed }) => [styles.btn, toneStyles[tone], pressed && styles.pressed, disabled && styles.disabled]}
     >
-      <Text style={[styles.btnText, (tone === 'boundary' || tone === 'wicket') && styles.lightText]}>{label}</Text>
-      {sub ? <Text style={[styles.sub, (tone === 'boundary' || tone === 'wicket') && styles.lightText]}>{sub}</Text> : null}
+      <Text style={[styles.btnText, tone === 'extra' && styles.extraText, light && styles.lightText]} numberOfLines={1} adjustsFontSizeToFit>
+        {label}
+      </Text>
+      {sub ? <Text style={[styles.sub, light && styles.lightText]}>{sub}</Text> : null}
     </Pressable>
   );
 }
@@ -58,9 +62,9 @@ export function ScoringPad({ disabled, onRuns, onBoundary, onOpenEditor, onUndo,
         <PadButton label="3" onPress={() => onRuns(3)} disabled={disabled} accessibilityLabel="3 runs" />
       </View>
       <View style={styles.row}>
-        <PadButton label="4" sub="boundary" tone="boundary" onPress={() => onBoundary('four')} disabled={disabled} accessibilityLabel="Four, boundary" />
-        <PadButton label="6" sub="boundary" tone="boundary" onPress={() => onBoundary('six')} disabled={disabled} accessibilityLabel="Six, boundary" />
-        <PadButton label="More" sub="runs" onPress={() => onOpenEditor({ kind: 'fair' })} disabled={disabled} accessibilityLabel="More run options" />
+        <PadButton label="4" sub="four" tone="boundary" onPress={() => onBoundary('four')} disabled={disabled} accessibilityLabel="Four, boundary" />
+        <PadButton label="6" sub="six" tone="boundary" onPress={() => onBoundary('six')} disabled={disabled} accessibilityLabel="Six, boundary" />
+        <PadButton label="More" sub="5+, overthrow" onPress={() => onOpenEditor({ kind: 'fair' })} disabled={disabled} accessibilityLabel="More run options" />
       </View>
       <View style={styles.row}>
         <PadButton label="Wide" tone="extra" onPress={() => onOpenEditor({ kind: 'extra', ballType: 'wide', runsFrom: null })} disabled={disabled} />
@@ -70,18 +74,17 @@ export function ScoringPad({ disabled, onRuns, onBoundary, onOpenEditor, onUndo,
       </View>
       <View style={styles.row}>
         <PadButton label="WICKET" tone="wicket" onPress={() => onOpenEditor({ kind: 'wicket' })} disabled={disabled} />
-        <PadButton label="Undo" tone="undo" onPress={onUndo} disabled={disabled || !canUndo} accessibilityLabel="Undo last action" />
+        <PadButton label="↶ Undo" tone="undo" onPress={onUndo} disabled={disabled || !canUndo} accessibilityLabel="Undo last action" />
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  pad: { gap: spacing.sm },
-  row: { flexDirection: 'row', gap: spacing.sm },
+  pad: { flex: 1, gap: spacing.sm },
+  row: { flex: 1, flexDirection: 'row', gap: spacing.sm, minHeight: 44 },
   btn: {
     flex: 1,
-    minHeight: 64,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -91,7 +94,8 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.75 },
   disabled: { opacity: 0.4 },
   btnText: { fontSize: font.title, fontWeight: '800', color: colors.text },
-  sub: { fontSize: 12, fontWeight: '700', color: colors.textMuted },
+  extraText: { fontSize: font.body },
+  sub: { fontSize: 11, fontWeight: '700', color: colors.textMuted },
   lightText: { color: colors.onPrimary },
 });
 

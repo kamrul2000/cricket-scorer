@@ -1,8 +1,10 @@
 // The scoring screen. Every tap becomes one event that is validated by the scoring engine and
-// saved in a transaction before the screen updates.
+// saved in a transaction before the screen updates. Laid out to fit one phone screen: score,
+// batters and bowler, this over, the occasional actions, then the pad fills the rest. Prompts
+// (next batter, next bowler, ...) take the pad's place and scroll if they are long.
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../../../components/Button';
@@ -23,11 +25,28 @@ import { ErrorBanner, ErrorView, LoadingView } from '../../../components/StateVi
 import { describeLastEvent } from '../../../domain/format';
 import type { DeliveryEvent, MatchEvent } from '../../../domain/match';
 import { canReplaceBowler, canRetire, canSwapBatters, currentInnings } from '../../../domain/scoring';
+import { useLineupAdder } from '../../../hooks/useLineupAdder';
 import { useMatchScoring } from '../../../hooks/useMatchScoring';
 import { colors, font, radius, spacing } from '../../../theme/theme';
 
 /** The delivery editor: a new ball from a preset, or (with editIndex) an earlier ball. */
 type EditorState = { preset: EditorPreset; editIndex?: number };
+
+/** A small button for the occasional actions row. */
+function ActionButton({ label, onPress, disabled, active }: { label: string; onPress: () => void; disabled: boolean; active?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled, selected: !!active }}
+      onPress={disabled ? undefined : onPress}
+      style={({ pressed }) => [styles.action, active && styles.actionActive, pressed && styles.pressed, disabled && styles.disabled]}
+    >
+      <Text style={[styles.actionText, active && styles.actionTextActive]} numberOfLines={1} adjustsFontSizeToFit>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
 
 export default function ScoreScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -35,10 +54,22 @@ export default function ScoreScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { match, loadError, saving, saveError, submit, edit, undo, retry, discardFailed, reload } = useMatchScoring(id);
+  const adder = useLineupAdder(match, submit);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [panel, setPanel] = useState<'retire' | 'bowler' | null>(null);
   const [pickingBall, setPickingBall] = useState(false);
   const [quickError, setQuickError] = useState<string | null>(null);
+  const [slowSave, setSlowSave] = useState(false);
+
+  // Most saves take a few milliseconds: only mention saving when one takes noticeably longer.
+  useEffect(() => {
+    if (!saving) return;
+    const timer = setTimeout(() => setSlowSave(true), 400);
+    return () => {
+      clearTimeout(timer);
+      setSlowSave(false);
+    };
+  }, [saving]);
 
   // Every saved action is already in the database, so leaving is always safe, except for an
   // action whose save failed: leaving gives up on it, so ask first (Android back or header back).
@@ -124,8 +155,6 @@ export default function ScoreScreen() {
 
   const next = state.next;
   const canUndo = events.length > 1;
-  const swapAllowed = canSwapBatters(state);
-  const swapBlockedReason = next.type === 'selectBatter' ? 'Choose the new batter before swapping or retiring.' : null;
   const retireAllowed = canRetire(state);
   const bowlerChangeAllowed = canReplaceBowler(state);
   const hasDeliveries = state.innings.some((i) => i.deliveries.length > 0);
@@ -137,6 +166,8 @@ export default function ScoreScreen() {
   // An open action panel takes the place of the pad (or the current prompt) until it closes.
   const shownPanel =
     panel === 'retire' && retireAllowed ? 'retire' : panel === 'bowler' && bowlerChangeAllowed ? 'bowler' : null;
+  const inPlay = !!inn && !inn.completed && (next.type === 'delivery' || next.type === 'selectBowler');
+  const padShown = !shownPanel && next.type === 'delivery';
 
   return (
     <View style={styles.screen}>
@@ -150,7 +181,10 @@ export default function ScoreScreen() {
           ),
         }}
       />
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: spacing.lg + insets.bottom }]}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: spacing.sm + insets.bottom }]}
+        keyboardShouldPersistTaps="handled"
+      >
         {saveError ? (
           <View style={styles.saveError}>
             <ErrorBanner message={saveError} />
@@ -167,57 +201,34 @@ export default function ScoreScreen() {
 
         {inn ? <ScoreHeader state={state} inn={inn} /> : null}
         {inn && !inn.completed ? <CreasePanel inn={inn} /> : null}
-        {swapAllowed || swapBlockedReason ? (
-          <View style={styles.swapRow}>
-            <View style={styles.row}>
-              <View style={styles.flex}>
-                <Button title="⇄ Swap batsmen" variant="secondary" onPress={confirmSwap} disabled={blocked || !swapAllowed} />
-              </View>
-              <View style={styles.flex}>
-                <Button
-                  title="Retire batter"
-                  variant="secondary"
-                  onPress={() => setPanel(shownPanel === 'retire' ? null : 'retire')}
-                  disabled={blocked || !retireAllowed}
-                />
-              </View>
-            </View>
-            {swapBlockedReason ? <Text style={styles.hint}>{swapBlockedReason}</Text> : null}
-          </View>
+        {inn ? (
+          <OverStrip
+            inn={inn}
+            onSelectBall={blocked ? undefined : openEdit}
+            onPickBall={hasDeliveries && !blocked ? () => setPickingBall(true) : undefined}
+          />
         ) : null}
-        {inn ? <OverStrip inn={inn} onSelectBall={blocked ? undefined : openEdit} /> : null}
-        {hasDeliveries || bowlerChangeAllowed ? (
-          <View style={styles.row}>
-            {hasDeliveries ? (
-              <View style={styles.flex}>
-                <Button title="Edit a ball" variant="secondary" onPress={() => setPickingBall(true)} disabled={blocked} />
-              </View>
-            ) : null}
-            {bowlerChangeAllowed ? (
-              <View style={styles.flex}>
-                <Button
-                  title="Change bowler"
-                  variant="secondary"
-                  onPress={() => setPanel(shownPanel === 'bowler' ? null : 'bowler')}
-                  disabled={blocked}
-                />
-              </View>
-            ) : null}
+        {inPlay ? (
+          <View style={styles.actions}>
+            <ActionButton label="⇄ Swap" onPress={confirmSwap} disabled={blocked || !canSwapBatters(state)} />
+            <ActionButton
+              label="Retire batter"
+              onPress={() => setPanel(shownPanel === 'retire' ? null : 'retire')}
+              disabled={blocked || !retireAllowed}
+              active={shownPanel === 'retire'}
+            />
+            <ActionButton
+              label="Change bowler"
+              onPress={() => setPanel(shownPanel === 'bowler' ? null : 'bowler')}
+              disabled={blocked || !bowlerChangeAllowed}
+              active={shownPanel === 'bowler'}
+            />
           </View>
         ) : null}
 
-        {saving ? (
-          <Text style={styles.saving} accessibilityLiveRegion="polite">
-            Saving…
-          </Text>
-        ) : null}
         {quickError ? <ErrorBanner message={quickError} /> : null}
 
-        {shownPanel === 'retire' ? (
-          <RetirePanel state={state} saving={blocked} onSubmit={submit} onClose={() => setPanel(null)} />
-        ) : shownPanel === 'bowler' ? (
-          <ReplaceBowlerPanel state={state} saving={blocked} onSubmit={submit} onClose={() => setPanel(null)} />
-        ) : next.type === 'delivery' ? (
+        {padShown ? (
           <ScoringPad
             disabled={blocked}
             onRuns={(runs) => void quick({ runs, boundary: 'none' })}
@@ -229,11 +240,15 @@ export default function ScoreScreen() {
             onUndo={confirmUndo}
             canUndo={canUndo}
           />
+        ) : shownPanel === 'retire' ? (
+          <RetirePanel state={state} saving={blocked} onSubmit={submit} onClose={() => setPanel(null)} />
+        ) : shownPanel === 'bowler' ? (
+          <ReplaceBowlerPanel state={state} saving={blocked} onSubmit={submit} onClose={() => setPanel(null)} adder={adder} />
         ) : (
           <>
-            {next.type === 'selectBatter' ? <NewBatterPanel state={state} saving={blocked} onSubmit={submit} /> : null}
-            {next.type === 'selectBowler' ? <NewBowlerPanel state={state} saving={blocked} onSubmit={submit} /> : null}
-            {next.type === 'selectOpeners' ? <InningsBreakPanel state={state} saving={blocked} onSubmit={submit} /> : null}
+            {next.type === 'selectBatter' ? <NewBatterPanel state={state} saving={blocked} onSubmit={submit} adder={adder} /> : null}
+            {next.type === 'selectBowler' ? <NewBowlerPanel state={state} saving={blocked} onSubmit={submit} adder={adder} /> : null}
+            {next.type === 'selectOpeners' ? <InningsBreakPanel state={state} saving={blocked} onSubmit={submit} adder={adder} /> : null}
             {next.type === 'matchComplete' ? (
               <MatchCompletePanel
                 state={state}
@@ -247,20 +262,34 @@ export default function ScoreScreen() {
         )}
 
         {next.type !== 'matchComplete' ? (
-          <View style={styles.abandon}>
-            <Button title="Abandon match (no result)" variant="danger" onPress={confirmAbandon} disabled={blocked} />
-          </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={blocked ? undefined : confirmAbandon}
+            style={({ pressed }) => [styles.abandon, pressed && styles.pressed, blocked && styles.disabled]}
+          >
+            <Text style={styles.abandonText}>Abandon match (no result)</Text>
+          </Pressable>
         ) : null}
       </ScrollView>
+
+      {saving && slowSave ? (
+        <View pointerEvents="none" style={[styles.savingPill, { top: spacing.sm }]}>
+          <Text style={styles.savingText} accessibilityLiveRegion="polite">
+            Saving…
+          </Text>
+        </View>
+      ) : null}
 
       {editor ? (
         <DeliveryEditor
           visible
           preset={editor.preset}
           editIndex={editor.editIndex}
+          setup={setup}
           state={state}
           events={events}
           saving={saving}
+          adder={adder}
           onCancel={() => setEditor(null)}
           onSubmit={(event) => (editor.editIndex === undefined ? submit(event) : edit(editor.editIndex, event))}
         />
@@ -272,13 +301,45 @@ export default function ScoreScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { padding: spacing.md, gap: spacing.md },
+  // flexGrow lets the pad fill the screen; on a very small screen the page can still scroll.
+  content: { flexGrow: 1, padding: spacing.sm, gap: spacing.sm },
   headerLink: { color: colors.onPrimary, fontSize: font.body, fontWeight: '700', padding: spacing.sm },
   saveError: { gap: spacing.sm, backgroundColor: colors.surface, padding: spacing.sm, borderRadius: radius.md },
   row: { flexDirection: 'row', gap: spacing.sm },
   flex: { flex: 1 },
-  saving: { fontSize: font.body, color: colors.textMuted, fontWeight: '700', textAlign: 'center' },
-  swapRow: { gap: spacing.xs },
-  hint: { fontSize: font.small, color: colors.textMuted, textAlign: 'center' },
-  abandon: { marginTop: spacing.xl },
+  actions: { flexDirection: 'row', gap: spacing.sm },
+  action: {
+    flex: 1,
+    minHeight: 40,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radius.sm,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionActive: { backgroundColor: colors.primary },
+  actionText: { fontSize: font.small, fontWeight: '800', color: colors.primary },
+  actionTextActive: { color: colors.onPrimary },
+  pressed: { opacity: 0.7 },
+  disabled: { opacity: 0.4 },
+  abandon: {
+    minHeight: 36,
+    borderRadius: radius.sm,
+    borderWidth: 1.5,
+    borderColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  abandonText: { color: colors.danger, fontSize: font.small, fontWeight: '800' },
+  savingPill: {
+    position: 'absolute',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(20, 32, 27, 0.85)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  savingText: { color: colors.onPrimary, fontSize: font.small, fontWeight: '700' },
 });

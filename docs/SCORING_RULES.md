@@ -18,8 +18,8 @@ playing conditions.**
 | Innings | One innings per side, plus Super Overs after a tie if the scorer chooses (section 18). | Law 13.1.2 (agreement) |
 | Overs | A positive whole number of overs per innings, chosen at setup (max 100). | Match agreement |
 | Balls per over | 6 valid balls. | Law 17.1 |
-| Players per side | 2 to 11 for each team (default 11). The two teams may have **different** numbers (for example 11 v 10). | **Local override.** The Laws assume 11 (Law 1.1), but allow other numbers by agreement. |
-| All out | When the batting side's lineup size − 1 wickets have fallen, or when a batter is needed and nobody is left who may bat (section 15). "Last batter stands" is **not** supported. | Law 13.3 |
+| Players per side | 2 to 11 for each team (default 11). The two teams may have **different** numbers (for example 11 v 10). The players need not all be named at the start (section 19). | **Local override.** The Laws assume 11 (Law 1.1), but allow other numbers by agreement. |
+| All out | When the batting side's players per side − 1 wickets have fallen, or when a batter is needed, nobody is left who may bat and the lineup is full (sections 15 and 19). "Last batter stands" is **not** supported. | Law 13.3 |
 | Result | Higher total wins (Law 16.2). Equal totals with both innings complete is a tie (Law 16.5.1). Margins are in runs (side batting first) or wickets (side batting second, = that side's players − 1 − wickets lost). An abandoned match has no result (section 11). | Law 16 |
 | Match end | The match ends the instant the target is reached (see section 6). | Law 16.6 |
 
@@ -211,7 +211,7 @@ match is complete.
 
 - Each team plays the number of players chosen for it (2 to 11; the two teams may differ). A
   player can appear only once per match, in one team, either in the playing lineup or as a
-  substitute.
+  substitute. The lineup may name fewer players at the start (section 19).
 - The captain and vice-captain (optional) must be in the playing lineup and be different
   players. They default to the team's captain and vice-captain.
 - **Substitutes** are recorded and shown on the scorecard, but **cannot bat, bowl, or be
@@ -232,8 +232,9 @@ was on strike.
 | Scorecard | "retired hurt" (if they did not resume); not out in career figures. | "retired out"; a dismissal in career figures. |
 
 When a new batter is needed and nobody may bat (everyone else is out, at the crease, or has just
-retired), the innings ends as all out. When only retired-hurt batters are left and none of them
-can resume, the scorer ends the innings with "No one else can bat: end innings".
+retired) and the lineup is full, the innings ends as all out. When only retired-hurt batters are
+left and none of them can resume, the scorer ends the innings with "No one else can bat: end
+innings".
 
 ## 16. A bowler who cannot finish an over (Law 17.8)
 
@@ -277,3 +278,27 @@ tied if they do not).
 - A Super Over that is abandoned leaves the match tied.
 - Super Over figures are on the scorecard, but not in career figures or the automatic awards.
 - Boundary-count and other tie-breaks are not supported.
+
+## 19. Naming players during the match (app rule)
+
+A team's **players per side** is fixed when the match is set up, but its lineup can name fewer
+players then, even none. The rest join while scoring, when they are needed:
+
+- Teams can be created on the new-match screen, and players added there by name. The openers
+  and opening bowler can be picked from the team's players or typed in.
+- When a new batter, the next bowler, a replacement bowler or a fielder (catch, stumping, run
+  out) is needed, the choice also lists the team's players who are not in the match yet, and a
+  box for a new name. A new name becomes a player on that team's roster.
+- Joining the lineup is its own action in the match history ("Rahim added to the Tigers
+  lineup"), so it can be undone like any other. Undo takes the player out of the lineup again;
+  they stay on the team's roster.
+- A lineup can never have more players than the team's players per side, and a player can be in
+  only one lineup per match.
+- All out is decided by the players per side, not by how many players have been named: with 11
+  a side, the 10th wicket ends the innings. If a new batter is needed and nobody named can bat,
+  the innings does **not** end on its own while places are free: the scorer adds the next batter,
+  or, if nobody else is coming, ends it with "No one else can bat: end innings" (all out).
+- The maximum-overs check counts the places still free as bowlers who have not bowled yet.
+- Players joining later never change how earlier balls are replayed: the lineup at each point of
+  the history is the one recorded up to then. An earlier ball can therefore only be edited to
+  name a fielder who was in the lineup at that time.

@@ -1,5 +1,7 @@
 // New match wizard: format -> lineup 1 -> lineup 2 -> toss -> openers -> start.
-// Nothing is saved until "Start match"; then the match and its first event are saved together.
+// The match is not saved until "Start match"; then the match and its first event are saved
+// together. Teams and players can be created on the spot (they are saved straight away), and
+// a lineup can name fewer players than the team size: the rest join while scoring.
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { BackHandler, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
@@ -7,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../../components/Button';
 import { Chips } from '../../components/Chips';
+import { NewPlayerField } from '../../components/NewPlayerField';
 import { OpenersPicker, type Openers } from '../../components/OpenersPicker';
 import { PlayerPicker } from '../../components/PlayerPicker';
 import { EmptyState, ErrorBanner, ErrorView, LoadingView } from '../../components/StateViews';
@@ -21,6 +24,7 @@ import {
   type TossDecision,
 } from '../../domain/match';
 import { MATCH_FORMATS, VENUE_MAX_LENGTH } from '../../domain/schedule';
+import { openSlots } from '../../domain/scoring';
 import { firstBattingTeamIndex, validateMatchSetup } from '../../domain/setupValidation';
 import { useFocusLoad } from '../../hooks/useFocusLoad';
 import { useGuardedAction } from '../../hooks/useGuardedAction';
@@ -140,9 +144,9 @@ export default function NewMatchScreen() {
 
   const setup: MatchSetup | null = useMemo(() => {
     if (!teamA || !teamB || !tossWinner || !decision) return null;
-    const pick = (team: TeamOption, ids: string[], subIds: string[], leaders: Leaders): TeamLineup => {
+    const pick = (team: TeamOption, size: number, ids: string[], subIds: string[], leaders: Leaders): TeamLineup => {
       const toPlayers = (list: string[]) => list.map((id) => team.players.find((p) => p.playerId === id)!).filter(Boolean);
-      const lineup: TeamLineup = { teamId: team.id, name: team.name, players: toPlayers(ids) };
+      const lineup: TeamLineup = { teamId: team.id, name: team.name, size, players: toPlayers(ids) };
       const subs = toPlayers(subIds.filter((id) => !ids.includes(id)));
       if (subs.length) lineup.substitutes = subs;
       // Captain and vice-captain only count when they are in the playing lineup.
@@ -156,10 +160,36 @@ export default function NewMatchScreen() {
         freeHitAfterNoBall: freeHit,
         maxOversPerBowler: maxOversText.trim() === '' ? null : (parseWhole(maxOversText) ?? 0),
       },
-      teams: [pick(teamA, lineupA, subsA, leadersA), pick(teamB, lineupB, subsB, leadersB)],
+      teams: [pick(teamA, sizeA, lineupA, subsA, leadersA), pick(teamB, sizeB, lineupB, subsB, leadersB)],
       toss: { winnerTeamId: tossWinner, decision },
     };
-  }, [teamA, teamB, tossWinner, decision, oversText, freeHit, maxOversText, lineupA, lineupB, subsA, subsB, leadersA, leadersB]);
+  }, [teamA, teamB, sizeA, sizeB, tossWinner, decision, oversText, freeHit, maxOversText, lineupA, lineupB, subsA, subsB, leadersA, leadersB]);
+
+  /** Creates a team on the spot and picks it as Team 1, or Team 2 when Team 1 is chosen. */
+  const createTeam = async (name: string): Promise<string | null> => {
+    try {
+      const team = await teams.create(name, []);
+      await reload();
+      if (!teamAId) setTeamAId(team.id);
+      else if (!teamBId) setTeamBId(team.id);
+      setStepError(null);
+      return null;
+    } catch (e) {
+      return errorMessage(e);
+    }
+  };
+
+  /** Creates a player on the team's roster on the spot; resolves to the player or an error. */
+  const createPlayer = async (teamId: string, name: string) => {
+    try {
+      const p = await players.create(name);
+      await teams.addToRoster(teamId, p.id);
+      await reload();
+      return { ok: true as const, player: { playerId: p.id, name: p.name } };
+    } catch (e) {
+      return { ok: false as const, error: errorMessage(e) };
+    }
+  };
 
   if (error && !data) return <ErrorView message={error} onRetry={reload} />;
   if (!data || (fromSchedule && !prefilled && scheduleLoad.loading)) return <LoadingView />;
@@ -187,24 +217,10 @@ export default function NewMatchScreen() {
       </View>
     );
   }
-  if (data.length < 2) {
-    return (
-      <View style={styles.center}>
-        <EmptyState
-          title="You need two teams"
-          message="Create at least two teams, each with enough players, before starting a match."
-        />
-        <View style={styles.padded}>
-          <Button title="Go to Teams" onPress={() => router.replace('/teams')} />
-        </View>
-      </View>
-    );
-  }
-
   function validateStep(): string | null {
     switch (step) {
       case 0: {
-        if (!teamA || !teamB) return 'Choose both teams.';
+        if (!teamA || !teamB) return data && data.length < 2 ? 'Create the teams that are playing (type a name above).' : 'Choose both teams.';
         if (teamA.id === teamB.id) return 'Choose two different teams.';
         const overs = parseWhole(oversText);
         if (overs === null || overs < 1 || overs > MAX_OVERS_PER_INNINGS) {
@@ -213,20 +229,13 @@ export default function NewMatchScreen() {
         if (maxOversText.trim() !== '' && !(parseWhole(maxOversText)! > 0)) {
           return 'Maximum overs per bowler must be a whole number above 0, or left blank for no limit.';
         }
-        for (const [t, size] of [
-          [teamA, sizeA],
-          [teamB, sizeB],
-        ] as const) {
-          if (t.players.length < size) {
-            return `${t.name} has only ${t.players.length} active players. Add players to the team or choose fewer players.`;
-          }
-        }
         return null;
       }
+      // A lineup may name anyone from none to the whole team: the rest join while scoring.
       case 1:
-        return lineupA.length === sizeA ? null : `Choose exactly ${sizeA} players for ${teamA?.name}.`;
+        return lineupA.length <= sizeA ? null : `Choose at most ${sizeA} players for ${teamA?.name}.`;
       case 2:
-        return lineupB.length === sizeB ? null : `Choose exactly ${sizeB} players for ${teamB?.name}.`;
+        return lineupB.length <= sizeB ? null : `Choose at most ${sizeB} players for ${teamB?.name}.`;
       case 3: {
         if (!tossWinner || !decision) return 'Record who won the toss and what they chose.';
         if (!setup) return 'Setup is incomplete.';
@@ -264,14 +273,26 @@ export default function NewMatchScreen() {
 
   const start = () =>
     run(async () => {
-      if (!setup) return;
+      if (!setup || !teamA || !teamB) return;
       if (!openers.strikerId || !openers.nonStrikerId || !openers.bowlerId) {
         setStepError('Choose the striker, the non-striker and the opening bowler.');
         return;
       }
+      // Openers chosen from outside a lineup join it.
+      const options = [teamA, teamB];
+      const withOpeners = (index: number, ids: string[]): TeamLineup => {
+        const lineup = setup.teams[index];
+        const joining = ids.filter((id) => !lineup.players.some((p) => p.playerId === id));
+        const found = joining.map((id) => options[index].players.find((p) => p.playerId === id)).filter((p) => !!p);
+        return { ...lineup, players: [...lineup.players, ...found] };
+      };
+      const teamsWithOpeners: [TeamLineup, TeamLineup] =
+        battingIdx === 0
+          ? [withOpeners(0, [openers.strikerId, openers.nonStrikerId]), withOpeners(1, [openers.bowlerId])]
+          : [withOpeners(0, [openers.bowlerId]), withOpeners(1, [openers.strikerId, openers.nonStrikerId])];
       try {
         const id = await service.startMatch(
-          setup,
+          { ...setup, teams: teamsWithOpeners },
           { strikerId: openers.strikerId, nonStrikerId: openers.nonStrikerId, bowlerId: openers.bowlerId },
           { details: { venue, formatName }, scheduleId },
         );
@@ -306,13 +327,29 @@ export default function NewMatchScreen() {
       { value: '', label: 'None' },
       ...inLineup.map((p) => ({ value: p.playerId, label: p.name, disabled: p.playerId === otherId })),
     ];
+    const selectable = team.players.filter((p) => !elsewhere(p.playerId)).map((p) => p.playerId);
     return (
       <>
         <Text style={styles.lead}>
-          Choose {size} players for {team.name}. {list.length} of {size} selected.
+          Choose up to {size} players for {team.name}. {list.length} of {size} selected.
         </Text>
-        {team.players.length === size && list.length !== size ? (
-          <Button title="Select all" variant="secondary" onPress={() => setList(team.players.map((p) => p.playerId).filter((id) => !elsewhere(id)))} />
+        <Text style={styles.help}>
+          You can leave places empty, or skip this step: players can be added while scoring, when they bat, bowl or field.
+        </Text>
+        {selectable.length <= size && list.length < selectable.length ? (
+          <Button title="Select all" variant="secondary" onPress={() => setList(selectable)} />
+        ) : null}
+        {list.length < size ? (
+          <NewPlayerField
+            placeholder={`New ${team.name} player's name`}
+            disabled={pending}
+            onAdd={async (name) => {
+              const r = await createPlayer(team.id, name);
+              if (!r.ok) return r.error;
+              setList([...list, r.player.playerId]);
+              return null;
+            }}
+          />
         ) : null}
         <PlayerPicker
           multiple
@@ -364,6 +401,11 @@ export default function NewMatchScreen() {
   };
 
   const battingIdx = setup ? firstBattingTeamIndex(setup) : 0;
+  /** Roster players not named in either lineup (or as a substitute): they can still join one. */
+  const outsiders = (team: TeamOption) => {
+    const named = new Set([...lineupA, ...lineupB, ...subsA, ...subsB]);
+    return team.players.filter((p) => !named.has(p.playerId));
+  };
 
   return (
     <View style={styles.screen}>
@@ -373,17 +415,35 @@ export default function NewMatchScreen() {
           <>
             {fromSchedule ? <Text style={styles.help}>Teams come from the scheduled match.</Text> : null}
             <Text style={styles.heading}>Team 1</Text>
-            <Chips
-              options={data.map((t) => ({ value: t.id, label: t.name, disabled: fromSchedule || t.id === teamBId }))}
-              value={teamAId}
-              onChange={setTeamAId}
-            />
+            {data.length ? (
+              <Chips
+                options={data.map((t) => ({ value: t.id, label: t.name, disabled: fromSchedule || t.id === teamBId }))}
+                value={teamAId}
+                onChange={setTeamAId}
+              />
+            ) : (
+              <Text style={styles.help}>No teams yet.</Text>
+            )}
             <Text style={styles.heading}>Team 2</Text>
-            <Chips
-              options={data.map((t) => ({ value: t.id, label: t.name, disabled: fromSchedule || t.id === teamAId }))}
-              value={teamBId}
-              onChange={setTeamBId}
-            />
+            {data.length ? (
+              <Chips
+                options={data.map((t) => ({ value: t.id, label: t.name, disabled: fromSchedule || t.id === teamAId }))}
+                value={teamBId}
+                onChange={setTeamBId}
+              />
+            ) : (
+              <Text style={styles.help}>No teams yet.</Text>
+            )}
+            {!fromSchedule ? (
+              <>
+                <Text style={styles.help}>
+                  {teamAId && teamBId
+                    ? 'Playing someone new? Create their team here.'
+                    : 'Team not listed? Type its name to create it: it is picked straight away, and players can be added later.'}
+                </Text>
+                <NewPlayerField placeholder="New team name" disabled={pending} onAdd={createTeam} />
+              </>
+            ) : null}
             <TextField label="Venue (optional)" value={venue} onChangeText={setVenue} maxLength={VENUE_MAX_LENGTH} placeholder="e.g. Eastfield Park" />
             <Text style={styles.heading}>Format</Text>
             <Chips
@@ -418,7 +478,10 @@ export default function NewMatchScreen() {
                 <Chips options={sizeOptions} value={playersB} onChange={setPlayersB} />
               </>
             ) : null}
-            <Text style={styles.help}>A side is all out when only one of its batters is left.</Text>
+            <Text style={styles.help}>
+              A side is all out when only one of its batters is left. The players do not all need names now: add them
+              while scoring.
+            </Text>
             <TextField label="Overs per innings" value={oversText} onChangeText={setOversText} keyboardType="number-pad" maxLength={3} />
             <View style={styles.switchRow}>
               <View style={styles.switchText}>
@@ -477,7 +540,7 @@ export default function NewMatchScreen() {
           </>
         ) : null}
 
-        {step === 4 && setup ? (
+        {step === 4 && setup && teamA && teamB ? (
           <OpenersPicker
             batting={setup.teams[battingIdx]}
             bowling={setup.teams[1 - battingIdx]}
@@ -486,6 +549,14 @@ export default function NewMatchScreen() {
               setOpeners(v);
               setStepError(null);
             }}
+            joiners={{
+              batting: outsiders([teamA, teamB][battingIdx]),
+              bowling: outsiders([teamA, teamB][1 - battingIdx]),
+              battingSlots: openSlots(setup.teams[battingIdx]),
+              bowlingSlots: openSlots(setup.teams[1 - battingIdx]),
+            }}
+            onCreatePlayer={(side, name) => createPlayer(setup.teams[side === 'batting' ? battingIdx : 1 - battingIdx].teamId, name)}
+            disabled={pending}
           />
         ) : null}
       </ScrollView>

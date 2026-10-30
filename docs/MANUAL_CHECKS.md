@@ -129,6 +129,27 @@ restore. These checks cover what only a real phone can show. Run them on the **r
       of the first Super Over are shown as not allowed.
 - [ ] PDF and image exports of a Super Over match show the Super Over innings.
 
+## Teams and players added on the spot, and the one-screen scoring layout
+
+- [ ] New match with no teams at all: type two team names on the first step; each is created and
+      picked (Team 1, then Team 2). Both appear in the Teams tab afterwards.
+- [ ] Skip both lineup steps (nobody selected). On the openers step, type the striker, the
+      non-striker and the opening bowler; each is selected. Start: the match begins, and the
+      three are on their teams' rosters.
+- [ ] After a wicket, the next-batter list shows team players not yet in the match and a
+      "New batter's name" box: a typed name comes in at once (and Undo twice removes the batter,
+      then the player from the lineup).
+- [ ] At the end of an over, "New bowler's name" brings in a new bowler. "Change bowler" offers
+      the same.
+- [ ] Record a catch: the "Caught by" choice offers team players not in the match and a new
+      fielder's name; the fielder joins the lineup and the catch saves.
+- [ ] With 11 a side and only 3 named batters, the 2nd wicket does not end the innings; with no
+      one left to add, "No one else can bat: end innings" ends it.
+- [ ] The scoring screen fits on one screen on a normal phone (score, batters and bowler, this
+      over with Edit, Swap / Retire batter / Change bowler, the full pad including Undo, and
+      "Abandon match"), with no scrolling. On a very small phone it scrolls a little instead of
+      cutting buttons off.
+
 ## Icon, splash screen and intro (release APK)
 
 - [ ] The home-screen icon is the white batter with the red ball on green, in round and
