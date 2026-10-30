@@ -15,13 +15,16 @@ import {
   type DismissalKind,
   type End,
   type MatchEvent,
+  type MatchSetup,
   type RunsFrom,
 } from '../../domain/match';
 import { computeMatchState, currentInnings, tryAddEvent, tryEditDelivery, type MatchState } from '../../domain/scoring';
+import type { LineupAdder } from '../../hooks/useLineupAdder';
 import type { SubmitResult } from '../../hooks/useMatchScoring';
 import { colors, font, radius, spacing } from '../../theme/theme';
 import { Button } from '../Button';
 import { Chips } from '../Chips';
+import { NewPlayerField } from '../NewPlayerField';
 import type { EditorPreset } from './ScoringPad';
 
 interface Draft {
@@ -75,15 +78,19 @@ interface Props {
   preset: EditorPreset;
   /** Change the delivery recorded at this event index instead of recording a new one. */
   editIndex?: number;
+  /** The stored setup: the events are replayed on it (not on state.setup, which has the joined players). */
+  setup: MatchSetup;
   state: MatchState;
   events: readonly MatchEvent[];
   saving: boolean;
+  /** Lets a fielder join the lineup for a catch, stumping or run out (new deliveries only). */
+  adder?: LineupAdder;
   onCancel: () => void;
   onSubmit: (event: DeliveryEvent) => Promise<SubmitResult>;
 }
 
 /** Mount a fresh editor for each delivery; the draft starts from `preset` (or the edited ball) when it mounts. */
-export function DeliveryEditor({ visible, preset, editIndex, state, events, saving, onCancel, onSubmit }: Props) {
+export function DeliveryEditor({ visible, preset, editIndex, setup, state, events, saving, adder, onCancel, onSubmit }: Props) {
   const editing = editIndex !== undefined && events[editIndex]?.type === 'delivery' ? (events[editIndex] as DeliveryEvent) : null;
   const [draft, setDraft] = useState<Draft>(() => (editing ? draftFromEvent(editing) : draftFor(preset)));
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -93,8 +100,8 @@ export function DeliveryEditor({ visible, preset, editIndex, state, events, savi
 
   // The match as it was just before this delivery: the batters, bowler and free hit it had.
   const before = useMemo(
-    () => (editIndex === undefined ? state : computeMatchState(state.setup, events.slice(0, editIndex))),
-    [editIndex, state, events],
+    () => (editIndex === undefined ? state : computeMatchState(setup, events.slice(0, editIndex))),
+    [editIndex, setup, state, events],
   );
   const recordIndex = editIndex ?? events.length;
   const original = editIndex === undefined ? null : state.innings.flatMap((i) => i.deliveries).find((d) => d.eventIndex === editIndex);
@@ -141,8 +148,8 @@ export function DeliveryEditor({ visible, preset, editIndex, state, events, savi
 
   const check = useMemo(() => {
     if (!built.event) return null;
-    return editIndex === undefined ? tryAddEvent(state.setup, events, built.event) : tryEditDelivery(state.setup, events, editIndex, built.event);
-  }, [built.event, state.setup, events, editIndex]);
+    return editIndex === undefined ? tryAddEvent(setup, events, built.event) : tryEditDelivery(setup, events, editIndex, built.event);
+  }, [built.event, setup, events, editIndex]);
   const preview = useMemo(() => {
     if (!check?.ok) return null;
     const after = currentInnings(check.state);
@@ -174,6 +181,38 @@ export function DeliveryEditor({ visible, preset, editIndex, state, events, savi
   const fielders = inn.bowlingTeam.players.map((p) => ({ value: p.playerId, label: p.name }));
   const error = built.problem ?? (check && !check.ok ? check.error : null);
   const boundaryRunsLocked = draft.boundary === 'four' || draft.boundary === 'six';
+  // A fielder who is not in the lineup yet can join it (only for a new delivery: an earlier
+  // ball can only name players who were in the lineup then).
+  const fieldingTeamId = inn.bowlingTeam.teamId;
+  const canJoin = !!adder && editIndex === undefined && adder.slots(fieldingTeamId) > 0;
+  const joiningFielders = canJoin ? adder!.extras(fieldingTeamId) : [];
+  const joinFielder = async (player: { playerId: string; name: string }) => {
+    const added = await adder!.addExisting(fieldingTeamId, player);
+    if (added.ok) set({ fielderId: added.playerId });
+    else if (added.error) setSubmitError(added.error);
+  };
+  const fielderJoin = canJoin ? (
+    <>
+      {joiningFielders.length ? (
+        <Chips
+          options={joiningFielders.map((p) => ({ value: p.playerId, label: `＋ ${p.name}`, disabled: saving }))}
+          value={null}
+          onChange={(id) => void joinFielder(joiningFielders.find((p) => p.playerId === id)!)}
+          accessibilityLabel="Players who can join the fielding lineup"
+        />
+      ) : null}
+      <NewPlayerField
+        placeholder="New fielder's name"
+        disabled={saving}
+        onAdd={async (name) => {
+          const added = await adder!.addNew(fieldingTeamId, name);
+          if (!added.ok) return added.error;
+          set({ fielderId: added.playerId });
+          return null;
+        }}
+      />
+    </>
+  ) : null;
 
   const save = async () => {
     if (!built.event || !check?.ok) return;
@@ -266,6 +305,7 @@ export function DeliveryEditor({ visible, preset, editIndex, state, events, savi
             <>
               <Text style={styles.heading}>{draft.wicket === 'caught' ? 'Caught by' : 'Stumped by (wicket-keeper)'}</Text>
               <Chips options={fielders} value={draft.fielderId} onChange={(v) => set({ fielderId: v })} />
+              {fielderJoin}
             </>
           ) : null}
 
@@ -295,6 +335,7 @@ export function DeliveryEditor({ visible, preset, editIndex, state, events, savi
               </Text>
               <Text style={styles.heading}>Fielder (optional)</Text>
               <Chips options={fielders} value={draft.fielderId} onChange={(v) => set({ fielderId: v === draft.fielderId ? null : v })} />
+              {fielderJoin}
             </>
           ) : null}
         </ScrollView>

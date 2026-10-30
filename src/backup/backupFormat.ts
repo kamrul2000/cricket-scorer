@@ -217,6 +217,22 @@ const UPGRADES: Record<number, (d: Record<string, unknown>) => Record<string, un
     ...d,
     matchEvents: mapRows(d.matchEvents, (e) => ({ ...e, retirement: null })),
   }),
+  // 7 -> 8: team sizes on matches (the lineups named the whole team), and the addPlayer event's
+  // team_id and player_name columns (none).
+  7: (d) => {
+    const lineup = Array.isArray(d.matchPlayers) ? d.matchPlayers.filter(isObject) : [];
+    const size = (matchId: unknown, teamId: unknown) =>
+      lineup.filter((p) => p.match_id === matchId && p.team_id === teamId && p.is_substitute === 0).length;
+    return {
+      ...d,
+      matches: mapRows(d.matches, (m) => ({
+        ...m,
+        team_a_size: size(m.id, m.team_a_id),
+        team_b_size: size(m.id, m.team_b_id),
+      })),
+      matchEvents: mapRows(d.matchEvents, (e) => ({ ...e, team_id: null, player_name: null })),
+    };
+  },
 };
 
 /** Applies `fn` to each row that is an object; anything else is left for the structure check. */
@@ -356,6 +372,11 @@ function checkReferences(d: BackupData): string[] {
     if (!matchIds.has(e.match_id)) {
       errors.push(`A ball-by-ball record refers to a missing match (${e.match_id}).`);
       break; // one message is enough
+    }
+  }
+  for (const e of d.matchEvents) {
+    if (e.type === 'addPlayer' && e.player_id !== null && !playerIds.has(e.player_id)) {
+      errors.push(`A player who joined match ${e.match_id} during play is missing (${e.player_id}).`);
     }
   }
   for (const m of d.matches) {

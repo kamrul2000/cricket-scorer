@@ -2,6 +2,7 @@ import {
   MAX_OVERS_PER_INNINGS,
   MAX_PLAYERS_PER_SIDE,
   MIN_PLAYERS_PER_SIDE,
+  teamSize,
   type MatchSetup,
 } from './match';
 
@@ -58,12 +59,16 @@ export function validateMatchSetup(setup: MatchSetup): string[] {
 
   const seen = new Set<string>();
   for (const team of teams) {
-    // The two teams may have different numbers of players (for example 11 v 10).
-    const size = team.players.length;
-    if (size < MIN_PLAYERS_PER_SIDE || size > MAX_PLAYERS_PER_SIDE) {
+    // The two teams may have different numbers of players (for example 11 v 10), and a lineup
+    // may name fewer players than the team size: the rest join during the match.
+    const size = teamSize(team);
+    if (!Number.isInteger(size) || size < MIN_PLAYERS_PER_SIDE || size > MAX_PLAYERS_PER_SIDE) {
+      const where = team.size === undefined ? ' in the lineup' : '';
       errors.push(
-        `Players per side must be from ${MIN_PLAYERS_PER_SIDE} to ${MAX_PLAYERS_PER_SIDE}: ${team.name} has ${size} in the lineup.`,
+        `Players per side must be from ${MIN_PLAYERS_PER_SIDE} to ${MAX_PLAYERS_PER_SIDE}: ${team.name} has ${size}${where}.`,
       );
+    } else if (team.players.length > size) {
+      errors.push(`${team.name} has ${team.players.length} players in the lineup, more than its ${size} players per side.`);
     }
     for (const p of [...team.players, ...(team.substitutes ?? [])]) {
       if (seen.has(p.playerId)) {
@@ -87,9 +92,9 @@ export function validateMatchSetup(setup: MatchSetup): string[] {
   }
 
   if (errors.length === 0 && rules.maxOversPerBowler !== null) {
-    // Each team bowls one innings, so each lineup must be able to bowl all the overs.
+    // Each team bowls one innings, so each team must be able to bowl all the overs.
     for (const team of teams) {
-      const size = team.players.length;
+      const size = teamSize(team);
       const allowance = new Map<string, number>();
       for (let i = 0; i < size; i++) allowance.set(String(i), rules.maxOversPerBowler);
       if (!canBowlRemainingOvers(rules.oversPerInnings, allowance, null)) {

@@ -131,11 +131,13 @@ restore. These checks cover what only a real phone can show. Run them on the **r
 
 ## Icon, splash screen and intro (release APK)
 
-- [ ] The home-screen icon is the white batter with the gold ball on green, in round and
+- [ ] The home-screen icon is the white batter with the red ball on green, in round and
       rounded-square launchers, and in Android 13+ themed icons (single colour).
 - [ ] Opening the app shows the batter on dark green (splash), with no white flash after it.
-- [ ] First launch after installing: the intro plays (logo, app name, "Developed by…", the ground,
-      the two match photos) and fades into the app. Close and reopen: it does not play again.
+- [ ] Every time the app starts, the intro plays (logo, app name, "Developed by…", the ground,
+      then the match photos: two wide ones, pushed aside by the other two) and fades into the
+      app. Close the app fully and reopen it: the intro plays again. Coming back to the app from
+      the background (without it being closed) does not replay it.
 - [ ] Skip, and the Android back button, both end the intro at once.
 - [ ] Settings > "Play the intro" plays it again.
 - [ ] With Android "Remove animations" on, a still title card shows briefly instead.

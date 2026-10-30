@@ -6,12 +6,13 @@ import { StyleSheet, Text, View } from 'react-native';
 import { formatOvers } from '../../domain/format';
 import type { MatchEvent, Retirement } from '../../domain/match';
 import { currentInnings, overInProgress, replacementBowlerOptions, type MatchState } from '../../domain/scoring';
+import type { LineupAdder } from '../../hooks/useLineupAdder';
 import type { SubmitResult } from '../../hooks/useMatchScoring';
 import { colors, font, radius, spacing } from '../../theme/theme';
 import { Button } from '../Button';
 import { Chips } from '../Chips';
-import { PlayerPicker } from '../PlayerPicker';
 import { ErrorBanner } from '../StateViews';
+import { ChooseOrAddPlayer } from './ChooseOrAddPlayer';
 
 interface Props {
   state: MatchState;
@@ -75,18 +76,16 @@ export function RetirePanel({ state, saving, onSubmit, onClose }: Props) {
   );
 }
 
-export function ReplaceBowlerPanel({ state, saving, onSubmit, onClose }: Props) {
+export function ReplaceBowlerPanel({ state, saving, onSubmit, onClose, adder }: Props & { adder: LineupAdder }) {
   const inn = currentInnings(state)!;
-  const [error, setError] = useState<string | null>(null);
   const options = replacementBowlerOptions(state);
   const started = overInProgress(inn);
   const current = inn.bowlers.find((b) => b.playerId === inn.bowlerId)?.name ?? '';
 
   const choose = async (playerId: string) => {
-    setError(null);
     const r = await onSubmit({ type: 'replaceBowler', playerId });
     if (r.ok || r.error === null) onClose();
-    else setError(r.error);
+    return r.ok ? null : r.error;
   };
 
   return (
@@ -97,8 +96,9 @@ export function ReplaceBowlerPanel({ state, saving, onSubmit, onClose }: Props) 
           ? "For a bowler who cannot finish the over (for example injured). Balls already bowled stay in the first bowler's figures. Neither bowler may bowl the next over (Laws 17.6 and 17.8), and a shared over is no one's maiden."
           : 'No ball has been bowled in this over yet, so this simply corrects who is bowling it.'}
       </Text>
-      {error ? <ErrorBanner message={error} /> : null}
-      <PlayerPicker
+      <ChooseOrAddPlayer
+        teamId={inn.bowlingTeam.teamId}
+        teamName={inn.bowlingTeam.name}
         players={options.map((o) => {
           const b = inn.bowlers.find((x) => x.playerId === o.playerId);
           return {
@@ -108,8 +108,10 @@ export function ReplaceBowlerPanel({ state, saving, onSubmit, onClose }: Props) 
             detail: b ? `${formatOvers(b.legalBalls)}-${b.maidens}-${b.runsConceded}-${b.wickets}` : undefined,
           };
         })}
-        selectedIds={[]}
-        onToggle={(id) => void choose(id)}
+        adder={adder}
+        saving={saving}
+        onChoose={choose}
+        newPlaceholder="New bowler's name"
       />
       <Button title="Cancel" variant="secondary" onPress={onClose} disabled={saving} />
     </View>

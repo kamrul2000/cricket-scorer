@@ -2,7 +2,7 @@
 // This layer does not know cricket rules; the match service checks events with the scoring
 // engine before calling `appendEvent`.
 import type { MatchAwards } from '../domain/awards';
-import type { LineupPlayer, MatchEvent, MatchSetup, TeamLineup, TossDecision } from '../domain/match';
+import { teamSize, type LineupPlayer, type MatchEvent, type MatchSetup, type TeamLineup, type TossDecision } from '../domain/match';
 import type { Database } from './database';
 import type { RepositoryDeps } from './deps';
 import {
@@ -61,7 +61,7 @@ export interface MatchRow {
   team_b_id: string;
   team_b_name: string;
   overs_per_innings: number;
-  /** The larger lineup size, for information only: the scoring uses the lineups themselves. */
+  /** The larger team size, for information only: the scoring uses team_a_size and team_b_size. */
   players_per_side: number;
   free_hit_after_no_ball: number;
   max_overs_per_bowler: number | null;
@@ -76,6 +76,9 @@ export interface MatchRow {
   best_bowler_id: string | null;
   venue: string;
   format_name: string;
+  /** Players each team fields (schema 8); the lineup rows may name fewer at the start. */
+  team_a_size: number;
+  team_b_size: number;
 }
 
 export interface MatchPlayerRow {
@@ -106,11 +109,13 @@ export function storedMatchFromRows(m: MatchRow, players: readonly MatchPlayerRo
     throw e;
   }
 
-  // Optional parts (substitutes, captain, vice-captain) are only present when recorded.
-  const lineup = (teamId: string, name: string): TeamLineup => {
+  // Optional parts (substitutes, captain, vice-captain) are only present when recorded, and the
+  // team size only when the lineup did not name the whole team.
+  const lineup = (teamId: string, name: string, size: number): TeamLineup => {
     const rows = players.filter((p) => p.team_id === teamId);
     const toPlayer = (p: MatchPlayerRow) => ({ playerId: p.player_id, name: p.player_name });
     const team: TeamLineup = { teamId, name, players: rows.filter((p) => !p.is_substitute).map(toPlayer) };
+    if (size !== team.players.length) team.size = size;
     const subs = rows.filter((p) => p.is_substitute).map(toPlayer);
     if (subs.length) team.substitutes = subs;
     const captain = rows.find((p) => p.role === 'captain');
@@ -125,7 +130,7 @@ export function storedMatchFromRows(m: MatchRow, players: readonly MatchPlayerRo
       freeHitAfterNoBall: m.free_hit_after_no_ball === 1,
       maxOversPerBowler: m.max_overs_per_bowler,
     },
-    teams: [lineup(m.team_a_id, m.team_a_name), lineup(m.team_b_id, m.team_b_name)],
+    teams: [lineup(m.team_a_id, m.team_a_name, m.team_a_size), lineup(m.team_b_id, m.team_b_name, m.team_b_size)],
     toss: { winnerTeamId: m.toss_winner_team_id, decision: m.toss_decision },
   };
   const awards: MatchAwards = {
@@ -167,8 +172,9 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
         await tx.run(
           `INSERT INTO matches (id, status, team_a_id, team_a_name, team_b_id, team_b_name,
              overs_per_innings, players_per_side, free_hit_after_no_ball, max_overs_per_bowler,
-             toss_winner_team_id, toss_decision, summary, event_count, created_at, updated_at, venue, format_name)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+             toss_winner_team_id, toss_decision, summary, event_count, created_at, updated_at, venue, format_name,
+             team_a_size, team_b_size)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             update.status,
@@ -177,7 +183,7 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
             b.teamId,
             b.name,
             r.oversPerInnings,
-            Math.max(a.players.length, b.players.length),
+            Math.max(teamSize(a), teamSize(b)),
             r.freeHitAfterNoBall ? 1 : 0,
             r.maxOversPerBowler,
             setup.toss.winnerTeamId,
@@ -187,6 +193,8 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
             now,
             details.venue,
             details.formatName,
+            teamSize(a),
+            teamSize(b),
           ],
         );
         if (options?.scheduleId) {
@@ -365,13 +373,14 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
       if (r.changes === 0) throw new RepositoryError('NOT_FOUND', 'This match no longer exists.');
     },
 
-    /** IDs of matches where the player is in a lineup snapshot, oldest first. */
+    /** IDs of matches where the player is in a lineup (from the start, or joined during play), oldest first. */
     async idsForPlayer(playerId: string): Promise<string[]> {
       const rows = await db.all<{ id: string }>(
         `SELECT m.id FROM matches m
           WHERE EXISTS (SELECT 1 FROM match_players mp WHERE mp.match_id = m.id AND mp.player_id = ?)
+             OR EXISTS (SELECT 1 FROM match_events me WHERE me.match_id = m.id AND me.type = 'addPlayer' AND me.player_id = ?)
           ORDER BY m.created_at, m.id`,
-        [playerId],
+        [playerId, playerId],
       );
       return rows.map((r) => r.id);
     },

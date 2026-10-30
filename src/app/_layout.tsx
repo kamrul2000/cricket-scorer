@@ -9,7 +9,7 @@ import { IntroHost } from '../intro/IntroHost';
 import { colors } from '../theme/theme';
 
 // Keep the native splash (logo on dark green) until the first screen has been laid out, so the
-// hand-over to the intro or the app has no blank frame. Called in module scope as Expo advises.
+// hand-over to the intro has no blank frame. Called in module scope as Expo advises.
 void SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 300, fade: true });
 

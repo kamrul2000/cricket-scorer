@@ -1,9 +1,10 @@
-// Prompts shown instead of the scoring pad when the engine needs a choice first.
+// Prompts shown instead of the scoring pad when the engine needs a choice first. Where a lineup
+// still has free places, the choice can also bring a new player into it.
 import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { formatOvers, inningsLabel, resultText, scoreText, superOverName } from '../../domain/format';
-import { SUPER_OVER_WICKETS, type MatchEvent } from '../../domain/match';
+import { SUPER_OVER_WICKETS, teamSize, type MatchEvent, type TeamLineup } from '../../domain/match';
 import {
   availableBatters,
   bowlerOptions,
@@ -13,18 +14,21 @@ import {
   upcomingInnings,
   type MatchState,
 } from '../../domain/scoring';
+import type { LineupAdder } from '../../hooks/useLineupAdder';
 import type { SubmitResult } from '../../hooks/useMatchScoring';
 import { colors, font, radius, spacing } from '../../theme/theme';
 import { Button } from '../Button';
 import { OpenersPicker, type Openers } from '../OpenersPicker';
-import { PlayerPicker } from '../PlayerPicker';
 import { ErrorBanner } from '../StateViews';
+import { ChooseOrAddPlayer } from './ChooseOrAddPlayer';
 
 interface PanelProps {
   state: MatchState;
   saving: boolean;
   onSubmit: (event: MatchEvent) => Promise<SubmitResult>;
 }
+
+type AddingPanelProps = PanelProps & { adder: LineupAdder };
 
 function useSubmitWithError(onSubmit: PanelProps['onSubmit']) {
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +40,13 @@ function useSubmitWithError(onSubmit: PanelProps['onSubmit']) {
   return { error, submit };
 }
 
-export function NewBatterPanel({ state, saving, onSubmit }: PanelProps) {
+/** Records an event; resolves to the error message to show, if any. */
+const recorder = (onSubmit: PanelProps['onSubmit']) => async (event: MatchEvent) => {
+  const r = await onSubmit(event);
+  return r.ok ? null : r.error;
+};
+
+export function NewBatterPanel({ state, saving, onSubmit, adder }: AddingPanelProps) {
   const inn = currentInnings(state)!;
   const { error, submit } = useSubmitWithError(onSubmit);
   const ids = availableBatters(state);
@@ -45,7 +55,7 @@ export function NewBatterPanel({ state, saving, onSubmit }: PanelProps) {
   const confirmEnd = () =>
     Alert.alert(
       'End the innings?',
-      'Use this only when everyone still to bat has retired hurt and cannot resume. The innings ends now. You can undo this.',
+      'Use this only when nobody else can bat (for example everyone left has retired hurt, or the rest of the team did not turn up). The innings ends now. You can undo this.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'End innings', style: 'destructive', onPress: () => void submit({ type: 'endInnings' }) },
@@ -58,7 +68,9 @@ export function NewBatterPanel({ state, saving, onSubmit }: PanelProps) {
         They come in at the {takesStrike ? "striker's end and face the next ball" : "non-striker's end"}.
       </Text>
       {error ? <ErrorBanner message={error} /> : null}
-      <PlayerPicker
+      <ChooseOrAddPlayer
+        teamId={inn.battingTeam.teamId}
+        teamName={inn.battingTeam.name}
         players={ids.map((id) => {
           const resuming = inn.batters.some((b) => b.playerId === id && b.retiredHurt);
           return {
@@ -68,12 +80,18 @@ export function NewBatterPanel({ state, saving, onSubmit }: PanelProps) {
             detail: resuming ? 'retired hurt: resumes' : undefined,
           };
         })}
-        selectedIds={[]}
-        onToggle={(id) => void submit({ type: 'newBatter', playerId: id })}
+        adder={adder}
+        saving={saving}
+        onChoose={(id) => recorder(onSubmit)({ type: 'newBatter', playerId: id })}
+        newPlaceholder="New batter's name"
       />
       {canEndInnings(state) ? (
         <>
-          <Text style={styles.help}>Only retired-hurt batters are left. If none of them can bat again, end the innings.</Text>
+          <Text style={styles.help}>
+            {ids.length
+              ? 'Only retired-hurt batters are left. If none of them can bat again, end the innings.'
+              : 'Nobody else in the lineup can bat. If no one else is coming, end the innings.'}
+          </Text>
           <Button title="No one else can bat: end innings" variant="secondary" onPress={confirmEnd} disabled={saving} />
         </>
       ) : null}
@@ -81,15 +99,15 @@ export function NewBatterPanel({ state, saving, onSubmit }: PanelProps) {
   );
 }
 
-export function NewBowlerPanel({ state, saving, onSubmit }: PanelProps) {
+export function NewBowlerPanel({ state, saving, onSubmit, adder }: AddingPanelProps) {
   const inn = currentInnings(state)!;
-  const { error, submit } = useSubmitWithError(onSubmit);
   const options = bowlerOptions(state);
   return (
     <View style={styles.panel}>
       <Text style={styles.title}>Over {Math.floor(inn.legalBalls / 6)} complete. Who bowls next?</Text>
-      {error ? <ErrorBanner message={error} /> : null}
-      <PlayerPicker
+      <ChooseOrAddPlayer
+        teamId={inn.bowlingTeam.teamId}
+        teamName={inn.bowlingTeam.name}
         players={options.map((o) => {
           const b = inn.bowlers.find((x) => x.playerId === o.playerId);
           return {
@@ -99,8 +117,10 @@ export function NewBowlerPanel({ state, saving, onSubmit }: PanelProps) {
             detail: b ? `${formatOvers(b.legalBalls)}-${b.maidens}-${b.runsConceded}-${b.wickets}` : undefined,
           };
         })}
-        selectedIds={[]}
-        onToggle={(id) => void submit({ type: 'newBowler', playerId: id })}
+        adder={adder}
+        saving={saving}
+        onChoose={(id) => recorder(onSubmit)({ type: 'newBowler', playerId: id })}
+        newPlaceholder="New bowler's name"
       />
     </View>
   );
@@ -108,10 +128,13 @@ export function NewBowlerPanel({ state, saving, onSubmit }: PanelProps) {
 
 const END_REASONS = { allOut: 'all out', overs: 'overs complete', targetReached: 'target reached', abandoned: 'abandoned' };
 
+const NO_OPENERS: Openers = { strikerId: null, nonStrikerId: null, bowlerId: null };
+
 /** Openers for the next innings: the second innings, or either innings of a Super Over. */
-export function InningsBreakPanel({ state, saving, onSubmit }: PanelProps) {
+export function InningsBreakPanel({ state, saving, onSubmit, adder }: AddingPanelProps) {
   const { error, submit } = useSubmitWithError(onSubmit);
-  const [openers, setOpeners] = useState<Openers>({ strikerId: null, nonStrikerId: null, bowlerId: null });
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [openers, setOpeners] = useState<Openers>(NO_OPENERS);
   const upcoming = upcomingInnings(state);
   if (!upcoming) return null;
   const { index, superOver, battingTeam: batting, bowlingTeam: bowling } = upcoming;
@@ -123,6 +146,25 @@ export function InningsBreakPanel({ state, saving, onSubmit }: PanelProps) {
     ...upcoming.ineligibleBowlerIds.map((id): [string, string] => [id, 'Bowled in the previous Super Over']),
   ]);
   const ready = openers.strikerId && openers.nonStrikerId && openers.bowlerId;
+
+  // Openers from outside a lineup join it first, then the innings starts.
+  const start = async () => {
+    setJoinError(null);
+    const joining: [TeamLineup, string][] = [
+      [batting, openers.strikerId!],
+      [batting, openers.nonStrikerId!],
+      [bowling, openers.bowlerId!],
+    ];
+    for (const [team, id] of joining) {
+      if (team.players.some((p) => p.playerId === id)) continue;
+      const player = adder.extras(team.teamId).find((p) => p.playerId === id);
+      if (!player) return setJoinError('Choose the openers again: one of them can no longer join the lineup.');
+      const added = await adder.addExisting(team.teamId, player);
+      if (!added.ok) return setJoinError(added.error);
+    }
+    await submit({ type: 'inningsStart', strikerId: openers.strikerId!, nonStrikerId: openers.nonStrikerId!, bowlerId: openers.bowlerId! });
+  };
+
   return (
     <View style={styles.panel}>
       <Text style={styles.title}>{superOver === null ? 'Innings break' : superOverName(superOver)}</Text>
@@ -139,23 +181,30 @@ export function InningsBreakPanel({ state, saving, onSubmit }: PanelProps) {
       ) : (
         <Text style={styles.lead}>
           Scores are level. {batting.name} bat first in the {superOverName(superOver ?? 1)}: one over each, and the
-          innings ends after {Math.min(SUPER_OVER_WICKETS, batting.players.length - 1)} wickets.
+          innings ends after {Math.min(SUPER_OVER_WICKETS, teamSize(batting) - 1)} wickets.
         </Text>
       )}
-      <OpenersPicker batting={batting} bowling={bowling} value={openers} onChange={setOpeners} unavailable={unavailable} />
-      {error ? <ErrorBanner message={error} /> : null}
+      <OpenersPicker
+        batting={batting}
+        bowling={bowling}
+        value={openers}
+        onChange={setOpeners}
+        unavailable={unavailable}
+        joiners={{
+          batting: adder.extras(batting.teamId),
+          bowling: adder.extras(bowling.teamId),
+          battingSlots: adder.slots(batting.teamId),
+          bowlingSlots: adder.slots(bowling.teamId),
+        }}
+        onCreatePlayer={(side, name) => adder.createOnRoster(side === 'batting' ? batting.teamId : bowling.teamId, name)}
+        disabled={saving}
+      />
+      {error || joinError ? <ErrorBanner message={(joinError ?? error)!} /> : null}
       <Button
         title={superOver === null ? 'Start second innings' : `Start ${batting.name} ${superOverName(superOver)} innings`}
         loading={saving}
         disabled={!ready}
-        onPress={() =>
-          void submit({
-            type: 'inningsStart',
-            strikerId: openers.strikerId!,
-            nonStrikerId: openers.nonStrikerId!,
-            bowlerId: openers.bowlerId!,
-          })
-        }
+        onPress={() => void start()}
       />
     </View>
   );

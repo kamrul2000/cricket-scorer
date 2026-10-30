@@ -8,6 +8,8 @@ import {
   MAX_RUNS_PER_DELIVERY,
   SUPER_OVER_OVERS,
   SUPER_OVER_WICKETS,
+  teamSize,
+  type AddPlayerEvent,
   type DeliveryEvent,
   type DeliveryInput,
   type DismissalKind,
@@ -151,7 +153,7 @@ export interface InningsState {
   bowlingTeam: TeamLineup;
   /** Overs available: the match overs, or 1 in a Super Over. */
   oversLimit: number;
-  /** Wickets that end the innings: the batting lineup size - 1, or at most 2 in a Super Over. */
+  /** Wickets that end the innings: the batting team size - 1, or at most 2 in a Super Over. */
   wicketsLimit: number;
   /** Runs needed to win (second innings of the match or of a Super Over only). */
   target: number | null;
@@ -214,6 +216,10 @@ export type MatchResult =
   | { type: 'superOverWin'; winnerTeamId: string; superOvers: number };
 
 export interface MatchState {
+  /**
+   * The setup with each lineup as it is now, including players who joined during the match.
+   * A copy: always replay events on the stored setup, never on this one.
+   */
   setup: MatchSetup;
   innings: InningsState[];
   next: NextAction;
@@ -376,11 +382,25 @@ export function canReplaceBowler(state: MatchState): boolean {
   return !!inn && !inn.completed && state.next.type === 'delivery' && inn.bowlerId !== null;
 }
 
-/** The innings can be closed when a batter is needed and only retired-hurt batters are left. */
+/**
+ * The innings can be closed when a batter is needed and only retired-hurt batters are left, or
+ * nobody is left in a lineup that is not full (the missing players never turned up).
+ */
 export function canEndInnings(state: MatchState): boolean {
   const inn = currentInnings(state);
   if (!inn || state.next.type !== 'selectBatter') return false;
   return batterCandidates(inn).every((id) => inn.batters.some((b) => b.playerId === id && b.retiredHurt));
+}
+
+/** Places still free in a lineup: the team size minus the players named so far. */
+export function openSlots(team: TeamLineup): number {
+  return Math.max(0, teamSize(team) - team.players.length);
+}
+
+/** A player can join a lineup that is not full, until the match is complete. */
+export function canAddPlayer(state: MatchState, teamId: string): boolean {
+  const team = state.setup.teams.find((t) => t.teamId === teamId);
+  return !!team && state.next.type !== 'matchComplete' && openSlots(team) > 0;
 }
 
 /** A Super Over can start when the match (or the latest Super Over) has just ended level. */
@@ -396,7 +416,10 @@ export function canStartSuperOver(state: MatchState): boolean {
 function initialState(setup: MatchSetup): MatchState {
   const setupErrors = validateMatchSetup(setup);
   if (setupErrors.length > 0) throw new ScoringError(`Invalid match setup: ${setupErrors[0]}`);
-  return { setup, innings: [], next: { type: 'selectOpeners', inningsIndex: 0 }, result: null };
+  // Players who join during the match are added to these copies of the lineups.
+  const copy = (team: TeamLineup): TeamLineup => ({ ...team, players: [...team.players] });
+  const working: MatchSetup = { ...setup, teams: [copy(setup.teams[0]), copy(setup.teams[1])] };
+  return { setup: working, innings: [], next: { type: 'selectOpeners', inningsIndex: 0 }, result: null };
 }
 
 function applyEvent(state: MatchState, event: MatchEvent, eventIndex: number): string | null {
@@ -421,9 +444,26 @@ function applyEvent(state: MatchState, event: MatchEvent, eventIndex: number): s
       return applyEndInnings(state);
     case 'superOver':
       return applySuperOver(state);
+    case 'addPlayer':
+      return applyAddPlayer(state, event);
     default:
       return 'Unknown event type.';
   }
+}
+
+function applyAddPlayer(state: MatchState, event: AddPlayerEvent): string | null {
+  if (state.next.type === 'matchComplete') return 'The match is already complete.';
+  const team = state.setup.teams.find((t) => t.teamId === event.teamId);
+  if (!team) return 'A player can only join one of the two teams.';
+  const name = typeof event.name === 'string' ? event.name.trim() : '';
+  if (!event.playerId || !name) return 'Choose the player who joins the lineup.';
+  const taken = state.setup.teams.find((t) =>
+    [...t.players, ...(t.substitutes ?? [])].some((p) => p.playerId === event.playerId),
+  );
+  if (taken) return `${name} is already named for ${taken.name} in this match.`;
+  if (openSlots(team) === 0) return `The ${team.name} lineup is full (${teamSize(team)} players).`;
+  team.players.push({ playerId: event.playerId, name });
+  return null; // the next action does not change: the new player is now one of the choices
 }
 
 function applySwapBatters(state: MatchState, eventIndex: number): string | null {
@@ -587,8 +627,7 @@ function applyInningsStart(state: MatchState, strikerId: string, nonStrikerId: s
     battingTeam,
     bowlingTeam,
     oversLimit: superOver === null ? state.setup.rules.oversPerInnings : SUPER_OVER_OVERS,
-    wicketsLimit:
-      superOver === null ? battingTeam.players.length - 1 : Math.min(SUPER_OVER_WICKETS, battingTeam.players.length - 1),
+    wicketsLimit: superOver === null ? teamSize(battingTeam) - 1 : Math.min(SUPER_OVER_WICKETS, teamSize(battingTeam) - 1),
     target: index % 2 === 1 ? state.innings[index - 1].runs + 1 : null,
     runs: 0,
     wickets: 0,
@@ -663,6 +702,8 @@ function canFinishInnings(state: MatchState, inn: InningsState, playerId: string
   for (const p of inn.bowlingTeam.players) {
     left.set(p.playerId, wholeOversLeft(inn, p.playerId, max, p.playerId === playerId ? balls : 0));
   }
+  // Players still to join the lineup can bowl too, each with the full allowance.
+  for (let i = 0; i < openSlots(inn.bowlingTeam); i++) left.set(`\u0000open-${i}`, max);
   return canBowlRemainingOvers(remainingAfter, left, blockedIds);
 }
 
@@ -784,9 +825,17 @@ function applyRetire(state: MatchState, event: RetireEvent, eventIndex: number):
   else inn.nonStrikerId = null;
   inn.vacancyLeftBy = playerId;
 
-  if (inn.wickets >= inn.wicketsLimit || batterCandidates(inn).length === 0) finishInnings(state, inn, 'allOut');
+  if (inn.wickets >= inn.wicketsLimit || noOneLeftToBat(inn)) finishInnings(state, inn, 'allOut');
   else state.next = nextWithinInnings(inn);
   return null;
+}
+
+/**
+ * Nobody may fill the vacancy and no one else can join the lineup (it is full). With places
+ * still free, the scorer adds the next batter instead (or ends the innings, see canEndInnings).
+ */
+function noOneLeftToBat(inn: InningsState): boolean {
+  return batterCandidates(inn).length === 0 && openSlots(inn.battingTeam) === 0;
 }
 
 function applyEndInnings(state: MatchState): string | null {
@@ -1067,7 +1116,7 @@ function applyDelivery(state: MatchState, d: DeliveryEvent, eventIndex: number):
   let endReason: InningsEndReason | null = null;
   if (inn.target !== null && inn.runs >= inn.target) endReason = 'targetReached';
   else if (inn.wickets >= inn.wicketsLimit) endReason = 'allOut';
-  else if (wicket && batterCandidates(inn).length === 0) endReason = 'allOut'; // nobody left who may bat
+  else if (wicket && noOneLeftToBat(inn)) endReason = 'allOut';
   else if (inn.legalBalls >= inn.oversLimit * BALLS_PER_OVER) endReason = 'overs';
 
   if (endReason) finishInnings(state, inn, endReason);

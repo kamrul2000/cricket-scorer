@@ -1,4 +1,5 @@
-// The animated intro: the logo and app name with the developer credit, then our ground.
+// The animated intro: the logo and app name with the developer credit, then our ground and a
+// gallery of match photos (two wide ones, then two more pushed in over them).
 // Built with React Native's Animated API on the native driver (opacity and transforms only), so
 // it stays smooth on low-end phones and needs no extra native library. Skippable at any time
 // (Skip button or Android back). With "Remove animations" turned on, a still version is shown.
@@ -26,12 +27,16 @@ const SCRIM = require('../../../assets/intro/scrim.png');
 const PITCH = require('../../../assets/intro/ground-pitch.jpg');
 const MATCH_1 = require('../../../assets/intro/ground-match-1.jpg');
 const MATCH_2 = require('../../../assets/intro/ground-match-2.jpg');
+const MATCH_3 = require('../../../assets/intro/ground-match-3.jpg');
+const MATCH_4 = require('../../../assets/intro/ground-match-4.jpg');
 
 /** Same colour as the native splash screen (app.json), so the hand-over is seamless. */
 export const INTRO_BACKGROUND = '#073D2C';
 const GOLD = '#F2B705';
 const LOGO_ASPECT = 516 / 760;
 const PANORAMA_ASPECT = 1440 / 596;
+const PHOTO_ASPECT = 16 / 9;
+const CARD_GAP = 14;
 
 /** Timeline in milliseconds. */
 const T = {
@@ -40,9 +45,10 @@ const T = {
   line: 800,
   credit: 1050,
   ground: 2600,
-  caption: 3100,
-  panoramas: 4600,
-  exit: 6600,
+  caption: 3000,
+  panoramas: 4300,
+  photos: 6200,
+  exit: 8100,
   exitDuration: 600,
 };
 
@@ -79,6 +85,10 @@ export function IntroOverlay({ onDone }: Props) {
     card1X: new Animated.Value(width),
     card2X: new Animated.Value(-width),
     cardZoom: new Animated.Value(1.12),
+    photosA: new Animated.Value(0),
+    card3X: new Animated.Value(width),
+    card4X: new Animated.Value(-width),
+    photoZoom: new Animated.Value(1.12),
     skipA: new Animated.Value(0),
   }));
   const main = useRef<Animated.CompositeAnimation | null>(null);
@@ -111,8 +121,13 @@ export function IntroOverlay({ onDone }: Props) {
         return;
       }
       const out = Easing.out(Easing.cubic);
+      const push = Easing.inOut(Easing.cubic);
       const t = (value: Animated.Value, toValue: number, duration: number, delay = 0, easing = out) =>
         Animated.timing(value, { toValue, duration, delay, easing, useNativeDriver: true });
+      // The wide photos slide in from both sides; later the other two push them back out the
+      // way they came (in a sequence, the second delay counts from the end of the first step).
+      const in1 = T.panoramas + 100;
+      const in2 = T.panoramas + 300;
       main.current = Animated.parallel([
         t(v.skipA, 1, 400, 600),
         // 1. Logo, glow and ring pulse.
@@ -140,10 +155,15 @@ export function IntroOverlay({ onDone }: Props) {
         t(v.captionY, 0, 500, T.caption + 150),
         // 4. The match panoramas slide in over a blurred backdrop.
         t(v.panoA, 1, 500, T.panoramas, Easing.inOut(Easing.quad)),
-        t(v.card1X, 0, 700, T.panoramas + 100),
-        t(v.card2X, 0, 700, T.panoramas + 300),
-        t(v.cardZoom, 1, 1900, T.panoramas + 100, Easing.out(Easing.quad)),
-        // 5. Fade into the app.
+        Animated.sequence([t(v.card1X, 0, 700, in1), t(v.card1X, -width, 650, T.photos - in1 - 700, push)]),
+        Animated.sequence([t(v.card2X, 0, 700, in2), t(v.card2X, width, 650, T.photos + 150 - in2 - 700, push)]),
+        t(v.cardZoom, 1, 1900, in1, Easing.out(Easing.quad)),
+        // 5. The other two photos push them out, and the backdrop follows.
+        t(v.photosA, 1, 650, T.photos, Easing.inOut(Easing.quad)),
+        t(v.card3X, 0, 650, T.photos, push),
+        t(v.card4X, 0, 650, T.photos + 150, push),
+        t(v.photoZoom, 1, 1900, T.photos, Easing.out(Easing.quad)),
+        // 6. Fade into the app.
         t(v.overlay, 0, T.exitDuration, T.exit, Easing.inOut(Easing.quad)),
       ]);
       main.current.start(({ finished: done }) => done && finish());
@@ -170,7 +190,32 @@ export function IntroOverlay({ onDone }: Props) {
   const glowSize = logoH * 2.4;
   const ringSize = logoH * 1.05;
   const cardW = width - 32;
-  const cardH = cardW / PANORAMA_ASPECT;
+  // Each pair of photos is centred between the brand tag and the caption, and shrinks (the photo
+  // is then cropped around its centre) if the screen is too short for its natural shape.
+  const galleryTop = insets.top + 60;
+  const galleryHeight = Math.max(120, height - insets.bottom - 150 - galleryTop);
+  const pairLayout = (aspect: number) => {
+    const cardH = Math.min(cardW / aspect, (galleryHeight - CARD_GAP) / 2);
+    return { cardH, top: galleryTop + (galleryHeight - 2 * cardH - CARD_GAP) / 2 };
+  };
+  const gallery = [
+    {
+      layout: pairLayout(PANORAMA_ASPECT),
+      zoom: v.cardZoom,
+      cards: [
+        { source: MATCH_1, x: v.card1X },
+        { source: MATCH_2, x: v.card2X },
+      ],
+    },
+    {
+      layout: pairLayout(PHOTO_ASPECT),
+      zoom: v.photoZoom,
+      cards: [
+        { source: MATCH_3, x: v.card3X },
+        { source: MATCH_4, x: v.card4X },
+      ],
+    },
+  ];
 
   return (
     <Animated.View
@@ -223,21 +268,29 @@ export function IntroOverlay({ onDone }: Props) {
         <Animated.Image source={PITCH} style={[StyleSheet.absoluteFill, { transform: [{ scale: v.pitchS }] }]} resizeMode="cover" />
         <Animated.View style={[StyleSheet.absoluteFill, { opacity: v.panoA }]}>
           <Image source={MATCH_2} style={StyleSheet.absoluteFill} resizeMode="cover" blurRadius={12} />
+          <Animated.Image
+            source={MATCH_4}
+            style={[StyleSheet.absoluteFill, { opacity: v.photosA }]}
+            resizeMode="cover"
+            blurRadius={12}
+          />
           <View style={[StyleSheet.absoluteFill, styles.dim]} />
-          <View style={[styles.cards, { top: height * 0.17 }]}>
-            {[
-              { source: MATCH_1, x: v.card1X },
-              { source: MATCH_2, x: v.card2X },
-            ].map((c, i) => (
-              <Animated.View key={i} style={[styles.card, { width: cardW, height: cardH, transform: [{ translateX: c.x }] }]}>
-                <Animated.Image
-                  source={c.source}
-                  style={{ width: cardW, height: cardH, transform: [{ scale: v.cardZoom }] }}
-                  resizeMode="cover"
-                />
-              </Animated.View>
-            ))}
-          </View>
+          {gallery.map((pair, i) => (
+            <View key={i} style={[styles.cards, { top: pair.layout.top }]}>
+              {pair.cards.map((c, j) => (
+                <Animated.View
+                  key={j}
+                  style={[styles.card, { width: cardW, height: pair.layout.cardH, transform: [{ translateX: c.x }] }]}
+                >
+                  <Animated.Image
+                    source={c.source}
+                    style={{ width: cardW, height: pair.layout.cardH, transform: [{ scale: pair.zoom }] }}
+                    resizeMode="cover"
+                  />
+                </Animated.View>
+              ))}
+            </View>
+          ))}
         </Animated.View>
         <Image source={SCRIM} style={[styles.scrim, { height: height * 0.5 }]} resizeMode="stretch" />
         <View style={[styles.brandTag, { top: insets.top + 14 }]}>
@@ -275,7 +328,7 @@ const styles = StyleSheet.create({
   creditName: { color: '#FFFFFF', fontSize: 20, fontWeight: '800', marginTop: 4, textAlign: 'center' },
   creditRole: { color: '#CFE3DA', fontSize: 13, fontWeight: '600', marginTop: 2, textAlign: 'center' },
   dim: { backgroundColor: 'rgba(2, 22, 15, 0.55)' },
-  cards: { position: 'absolute', left: 16, right: 16, gap: 14 },
+  cards: { position: 'absolute', left: 16, right: 16, gap: CARD_GAP },
   card: { borderRadius: 14, overflow: 'hidden', borderWidth: 2, borderColor: 'rgba(255,255,255,0.85)', backgroundColor: '#0B2A1F' },
   scrim: { position: 'absolute', left: 0, right: 0, bottom: 0, width: '100%' },
   brandTag: { position: 'absolute', left: 16, flexDirection: 'row', alignItems: 'center', gap: 8 },

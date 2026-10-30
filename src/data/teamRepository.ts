@@ -171,6 +171,18 @@ export function createTeamRepository(db: Database, deps: RepositoryDeps) {
       return (await this.get(id))!;
     },
 
+    /**
+     * Adds one active player to the roster, keeping everyone else (used when a player is added
+     * while setting up or scoring a match). Nothing changes if they are already on it.
+     */
+    async addToRoster(teamId: string, playerId: string): Promise<void> {
+      await db.transaction(async (tx) => {
+        await getTeamRow(tx, teamId);
+        const roster = await readRoster(tx, teamId);
+        if (!roster.includes(playerId)) await writeRoster(tx, teamId, [...roster, playerId]);
+      });
+    },
+
     /** Logo file names currently used by any team (active or archived). */
     async logoFilesInUse(): Promise<string[]> {
       const rows = await db.all<{ logo_file: string }>('SELECT logo_file FROM teams WHERE logo_file IS NOT NULL');

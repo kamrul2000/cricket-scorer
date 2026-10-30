@@ -1,29 +1,8 @@
-// Shows the animated intro over the app on the first launch, and again when asked (Settings).
-// Whether it was seen is kept in a tiny key-value store, separate from the scoring database and
-// not part of backups.
-import Storage from 'expo-sqlite/kv-store';
+// Shows the animated intro over the app every time the app starts, and again when asked (Settings).
+// The app mounts underneath it straight away, so the database opens while the intro plays.
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react';
 
 import { IntroOverlay } from '../components/intro/IntroOverlay';
-
-/** Change the version to show a new intro once to everyone after an update. */
-const SEEN_KEY = 'intro.seen.v1';
-
-function introSeen(): boolean {
-  try {
-    return Storage.getItemSync(SEEN_KEY) === '1';
-  } catch {
-    return false; // if the store cannot be read, showing the (skippable) intro is harmless
-  }
-}
-
-function markIntroSeen() {
-  try {
-    Storage.setItemSync(SEEN_KEY, '1');
-  } catch {
-    // Not critical: the intro would just show again next time.
-  }
-}
 
 const PlayIntroContext = createContext<() => void>(() => undefined);
 
@@ -33,12 +12,9 @@ export function usePlayIntro() {
 }
 
 export function IntroHost({ children }: { children: ReactNode }) {
-  const [visible, setVisible] = useState(() => !introSeen());
+  const [visible, setVisible] = useState(true);
   const play = useCallback(() => setVisible(true), []);
-  const done = useCallback(() => {
-    markIntroSeen();
-    setVisible(false);
-  }, []);
+  const done = useCallback(() => setVisible(false), []);
   return (
     <PlayIntroContext.Provider value={play}>
       {children}

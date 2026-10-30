@@ -117,6 +117,8 @@ export const BACKUP_TABLES: Record<BackupTableKey, TableSpec> = {
       best_bowler_id: 'text?',
       venue: 'string',
       format_name: 'string',
+      team_a_size: 'int',
+      team_b_size: 'int',
     },
     orderBy: 'created_at, id',
   },

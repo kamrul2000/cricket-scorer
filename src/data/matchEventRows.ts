@@ -21,6 +21,9 @@ export interface EventRow {
   fielder_id: string | null;
   /** 'hurt' or 'out' for a retirement (schema 7). */
   retirement: string | null;
+  /** The team a player joins, and their name then, for addPlayer (schema 8). */
+  team_id: string | null;
+  player_name: string | null;
   batter_runs: number | null;
   extras_wides: number | null;
   extras_no_balls: number | null;
@@ -52,6 +55,8 @@ export const EVENT_COLUMNS: (keyof EventRow)[] = [
   'run_out_end',
   'fielder_id',
   'retirement',
+  'team_id',
+  'player_name',
   'batter_runs',
   'extras_wides',
   'extras_no_balls',
@@ -94,6 +99,8 @@ export function eventToRow(seq: number, { event, inningsIndex, record }: EventTo
     run_out_end: null,
     fielder_id: null,
     retirement: null,
+    team_id: null,
+    player_name: null,
     batter_runs: null,
     extras_wides: null,
     extras_no_balls: null,
@@ -120,6 +127,11 @@ export function eventToRow(seq: number, { event, inningsIndex, record }: EventTo
     case 'retire':
       row.player_id = event.playerId;
       row.retirement = event.retirement;
+      break;
+    case 'addPlayer':
+      row.team_id = event.teamId;
+      row.player_id = event.playerId;
+      row.player_name = event.name;
       break;
     case 'swapBatters':
     case 'abandon':
@@ -197,6 +209,13 @@ export function rowToEvent(row: EventRow): MatchEvent {
         type: 'retire',
         playerId: need(row.player_id, 'the player', s),
         retirement: oneOf<Retirement>(row.retirement, ['hurt', 'out'], 'retirement', s),
+      };
+    case 'addPlayer':
+      return {
+        type: 'addPlayer',
+        teamId: need(row.team_id, 'the team', s),
+        playerId: need(row.player_id, 'the player', s),
+        name: need(row.player_name, "the player's name", s),
       };
     case 'swapBatters':
     case 'abandon':

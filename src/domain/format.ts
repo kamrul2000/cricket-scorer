@@ -1,5 +1,5 @@
 // Display helpers. Screens use these instead of formatting cricket values themselves.
-import { BALLS_PER_OVER, type MatchEvent, type MatchSetup, type TeamLineup } from './match';
+import { BALLS_PER_OVER, teamSize, type MatchEvent, type MatchSetup, type TeamLineup } from './match';
 import {
   currentInnings,
   extrasTotal,
@@ -76,9 +76,9 @@ export function inningsLabel(inn: InningsState): string {
   return inn.superOver === null ? `${inn.index === 0 ? '1st' : '2nd'} innings` : superOverName(inn.superOver);
 }
 
-/** "11 a side", or "11 v 10 players" when the lineups differ (in team order). */
+/** "11 a side", or "11 v 10 players" when the team sizes differ (in team order). */
 export function teamSizeText(setup: MatchSetup): string {
-  const [a, b] = setup.teams.map((t) => t.players.length);
+  const [a, b] = setup.teams.map(teamSize);
   return a === b ? `${a} a side` : `${a} v ${b} players`;
 }
 
@@ -228,6 +228,8 @@ export function describeLastEvent(state: MatchState, events: readonly MatchEvent
       return 'Innings ended: no one else could bat';
     case 'superOver':
       return 'Super Over started';
+    case 'addPlayer':
+      return `${event.name} added to the ${teamName(state.setup, event.teamId)} lineup`;
     case 'delivery': {
       const index = events.length - 1;
       const record = state.innings.flatMap((i) => i.deliveries).find((d) => d.eventIndex === index);

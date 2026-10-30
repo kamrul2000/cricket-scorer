@@ -218,14 +218,19 @@ describe('invalid backups are rejected before anything is written', () => {
     ['a match against a missing team', (f) => (f.data.matches[0].team_b_id = 'ghost'), /missing team \(ghost\)/],
     ['events for a missing match', (f) => (f.data.matchEvents[0].match_id = 'ghost'), /missing match \(ghost\)/],
     ['a gap in the ball-by-ball history', (f) => f.data.matchEvents.splice(1, 1), /incomplete/],
+    ['a team with too few players', (f) => (f.data.matches[0].team_b_size = 1), /Players per side must be from 2 to 11/],
     [
-      'a lineup with too few players',
+      'a lineup larger than its team',
+      (f) => (f.data.matches[0].team_b_size = 2),
+      /3 players in the lineup, more than its 2 players per side/,
+    ],
+    [
+      'a player who joined during play but does not exist',
       (f) => {
-        const teamB = f.data.matches[0].team_b_id;
-        const firstB = f.data.matchPlayers.find((p: { team_id: string }) => p.team_id === teamB);
-        f.data.matchPlayers = f.data.matchPlayers.filter((p: { team_id: string }) => p.team_id !== teamB || p === firstB);
+        const e = f.data.matchEvents.find((x: { type: string }) => x.type === 'delivery');
+        Object.assign(e, { type: 'addPlayer', team_id: f.data.matches[0].team_b_id, player_id: 'ghost', player_name: 'Ghost' });
       },
-      /Players per side must be from 2 to 11/,
+      /during play is missing \(ghost\)/,
     ],
     ['an invalid stored event', (f) => (f.data.matchEvents[1].ball_type = 'bouncer'), /invalid ball type/],
     [

@@ -37,8 +37,14 @@ export interface TeamLineup {
   teamId: string;
   name: string;
   /**
-   * The playing lineup: the only players who can bat, bowl or field in the scoring. 2 to 11
-   * players; the two teams may have different numbers. All out = players.length - 1 wickets.
+   * Players this team fields in the match (2 to 11; the two teams may differ). All out = size - 1
+   * wickets. The lineup may name fewer players at the start; the others join it during the
+   * match (AddPlayerEvent). Omitted when the lineup names the whole team. See `teamSize`.
+   */
+  size?: number;
+  /**
+   * The playing lineup: the only players who can bat, bowl or field in the scoring. At most
+   * `size` players.
    */
   players: LineupPlayer[];
   /**
@@ -49,6 +55,11 @@ export interface TeamLineup {
   /** Captain and vice-captain for this match (optional), from the playing lineup. */
   captainId?: string | null;
   viceCaptainId?: string | null;
+}
+
+/** Players the team fields: its declared size, or the whole lineup when none is declared. */
+export function teamSize(team: TeamLineup): number {
+  return team.size ?? team.players.length;
 }
 
 export type TossDecision = 'bat' | 'bowl';
@@ -179,6 +190,18 @@ export interface SuperOverEvent {
   type: 'superOver';
 }
 
+/**
+ * A player joins a team's lineup during the match, while it has fewer players than the team
+ * size. From then on they can bat, bowl and field. `name` is their name at that moment (like
+ * the lineup snapshot). Recorded as an event so the lineup at any point of the history is known.
+ */
+export interface AddPlayerEvent {
+  type: 'addPlayer';
+  teamId: string;
+  playerId: string;
+  name: string;
+}
+
 export type MatchEvent =
   | InningsStartEvent
   | DeliveryEvent
@@ -189,4 +212,5 @@ export type MatchEvent =
   | RetireEvent
   | ReplaceBowlerEvent
   | EndInningsEvent
-  | SuperOverEvent;
+  | SuperOverEvent
+  | AddPlayerEvent;
