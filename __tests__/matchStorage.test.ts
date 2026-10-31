@@ -244,7 +244,7 @@ describe('match storage', () => {
     const { repos, matchSetup } = await setup();
     const bad = { ...matchSetup, toss: { winnerTeamId: 'someone-else', decision: 'bat' as const } };
     await expect(
-      repos.matches.create(bad, { event: { type: 'inningsStart', strikerId: 'x', nonStrikerId: 'y', bowlerId: 'z' }, inningsIndex: 0, record: null }, { status: 'inProgress', summary: '' }),
+      repos.matches.create(bad, { event: { type: 'inningsStart', strikerId: 'x', nonStrikerId: 'y', bowlerId: 'z' }, inningsIndex: 0, record: null }, { status: 'inProgress', summary: '', abandoned: false }),
     ).rejects.toThrow();
     expect(await repos.matches.list()).toEqual([]);
   });

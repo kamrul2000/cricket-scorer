@@ -108,7 +108,7 @@ describe('PDF scorecard HTML', () => {
     abandoned.events.push({ type: 'abandon' });
     const html = scorecardHtml(doc(abandoned.state));
     expect(html).toContain('No result (match abandoned)');
-    expect(html).toContain('match abandoned</p>');
+    expect(html).toContain('Innings ended when the match was abandoned</p>');
   });
 });
 

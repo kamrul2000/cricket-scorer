@@ -72,6 +72,9 @@ const EVENT_NULLABLE_INT_COLUMNS = new Set([
   'is_ball_faced',
   'is_free_hit',
   'wicket_credited_to_bowler',
+  'revised_overs',
+  'revised_target',
+  'revised_bowler_limit',
 ]);
 
 function eventColumnKind(c: string): ColumnKind {
@@ -119,6 +122,9 @@ export const BACKUP_TABLES: Record<BackupTableKey, TableSpec> = {
       format_name: 'string',
       team_a_size: 'int',
       team_b_size: 'int',
+      abandoned: 'int',
+      paused_at: 'text?',
+      pause_reason: 'text?',
     },
     orderBy: 'created_at, id',
   },

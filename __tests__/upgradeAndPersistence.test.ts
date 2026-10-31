@@ -41,8 +41,8 @@ async function schema2Database() {
   ];
   for (let seq = 0; seq < events.length; seq++) {
     const row = eventToRow(seq, { event: events[seq], inningsIndex: 0, record: null });
-    // Only the columns a schema-2 database had (`retirement` came in schema 7, the others in 8).
-    const cols = Object.keys(row).filter((c) => !['retirement', 'team_id', 'player_name'].includes(c));
+    // Only the columns a schema-2 database had (`retirement` came in schema 7, `team_id` and `player_name` in 8, the others in 9).
+    const cols = Object.keys(row).filter((c) => !['retirement', 'team_id', 'player_name', 'revised_overs', 'revised_target', 'revised_bowler_limit'].includes(c));
     await db.run(
       `INSERT INTO match_events (match_id, created_at, ${cols.join(', ')}) VALUES (?, ?, ${cols.map(() => '?').join(', ')})`,
       ['m1', T, ...cols.map((c) => row[c as keyof typeof row])],
@@ -119,8 +119,8 @@ describe('older backups', () => {
     delete file.files;
     for (const t of file.data.teams) for (const c of ['description', 'logo_file', 'captain_id', 'vice_captain_id']) delete t[c];
     for (const p of file.data.matchPlayers) for (const c of ['is_substitute', 'role']) delete p[c];
-    for (const e of file.data.matchEvents) for (const c of ['retirement', 'team_id', 'player_name']) delete e[c];
-    for (const m of file.data.matches) for (const c of ['player_of_match_id', 'best_batter_id', 'best_bowler_id', 'venue', 'format_name', 'team_a_size', 'team_b_size']) delete m[c];
+    for (const e of file.data.matchEvents) for (const c of ['retirement', 'team_id', 'player_name', 'revised_overs', 'revised_target', 'revised_bowler_limit']) delete e[c];
+    for (const m of file.data.matches) for (const c of ['player_of_match_id', 'best_batter_id', 'best_bowler_id', 'venue', 'format_name', 'team_a_size', 'team_b_size', 'abandoned', 'paused_at', 'pause_reason']) delete m[c];
     const check = parseBackup(JSON.stringify(file));
     if (!check.ok) throw new Error(check.errors.join('\n'));
     expect(check.backup.file.data.teams[0]).toMatchObject({ description: '', logo_file: null, captain_id: null });

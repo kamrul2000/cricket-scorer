@@ -17,6 +17,7 @@ import {
   type MatchSetup,
   type RetireEvent,
   type Retirement,
+  type ReviseOversEvent,
   type TeamLineup,
 } from './match';
 import { canBowlRemainingOvers, firstBattingTeamIndex, validateMatchSetup } from './setupValidation';
@@ -142,7 +143,8 @@ export interface RetirementRecord {
   legalBalls: number;
 }
 
-export type InningsEndReason = 'overs' | 'allOut' | 'targetReached' | 'abandoned';
+/** 'closed' = ended early by the scorers (CloseInningsEvent). */
+export type InningsEndReason = 'overs' | 'allOut' | 'targetReached' | 'abandoned' | 'closed';
 
 export interface InningsState {
   /** 0 and 1 are the main innings; 2 and 3 the first Super Over; 4 and 5 the second; ... */
@@ -151,12 +153,16 @@ export interface InningsState {
   superOver: number | null;
   battingTeam: TeamLineup;
   bowlingTeam: TeamLineup;
-  /** Overs available: the match overs, or 1 in a Super Over. */
+  /** Overs available: the match overs, or 1 in a Super Over. Lower after a ReviseOversEvent. */
   oversLimit: number;
+  /** Overs the innings had when the match was set up (compare with oversLimit). */
+  plannedOvers: number;
   /** Wickets that end the innings: the batting team size - 1, or at most 2 in a Super Over. */
   wicketsLimit: number;
   /** Runs needed to win (second innings of the match or of a Super Over only). */
   target: number | null;
+  /** The target was revised after overs were lost (ReviseOversEvent). */
+  targetRevised: boolean;
   runs: number;
   wickets: number;
   legalBalls: number;
@@ -204,12 +210,13 @@ export type NextAction =
   | { type: 'delivery' }
   | { type: 'matchComplete' };
 
+/** `revisedTarget` is present (true) when the chase had a revised target (ReviseOversEvent). */
 export type MatchResult =
-  | { type: 'tie' }
+  | { type: 'tie'; revisedTarget?: true }
   /** The match was abandoned before a result (see the 'abandon' event). */
   | { type: 'noResult' }
-  | { type: 'winByRuns'; winnerTeamId: string; runs: number }
-  | { type: 'winByWickets'; winnerTeamId: string; wickets: number; ballsRemaining: number }
+  | { type: 'winByRuns'; winnerTeamId: string; runs: number; revisedTarget?: true }
+  | { type: 'winByWickets'; winnerTeamId: string; wickets: number; ballsRemaining: number; revisedTarget?: true }
   /** The match was tied and so was the latest Super Over (another one may be played). */
   | { type: 'superOverTie'; superOvers: number }
   /** The match was tied and a Super Over decided the winner. */
@@ -224,6 +231,10 @@ export interface MatchState {
   innings: InningsState[];
   next: NextAction;
   result: MatchResult | null;
+  /** Overs per innings the match was set up with (state.setup has the current, possibly fewer). */
+  scheduledOvers: number;
+  /** A target revised during the innings break, for the second innings when it starts. */
+  revisedTarget: number | null;
 }
 
 export class ScoringError extends Error {
@@ -410,16 +421,76 @@ export function canStartSuperOver(state: MatchState): boolean {
   return state.innings.length % 2 === 0 && !state.innings.some((inn) => inn.endReason === 'abandoned');
 }
 
+/** The scorers can close the innings in progress at any point between deliveries. */
+export function canCloseInnings(state: MatchState): boolean {
+  const inn = currentInnings(state);
+  return !!inn && !inn.completed && ['delivery', 'selectBatter', 'selectBowler'].includes(state.next.type);
+}
+
+/** What a ReviseOversEvent may change now, or null when the overs cannot be changed. */
+export interface OversRevision {
+  /** 0 = the first innings (the second gets the same overs), 1 = the second innings. */
+  inningsIndex: 0 | 1;
+  /** The second innings has not started yet (the innings break). */
+  beforeStart: boolean;
+  overs: number;
+  /** Fewest overs allowed: the overs already started can no longer be taken away. */
+  minOvers: number;
+  /** Most overs allowed: the overs the match was set up with. */
+  maxOvers: number;
+  /** The second innings target as it is now (null in the first innings). */
+  target: number | null;
+  maxOversPerBowler: number | null;
+}
+
+export function oversRevision(state: MatchState): OversRevision | null {
+  const inn = currentInnings(state);
+  const base = { maxOvers: state.scheduledOvers, maxOversPerBowler: state.setup.rules.maxOversPerBowler };
+  if (state.next.type === 'selectOpeners' && state.next.inningsIndex === 1) {
+    const overs = state.setup.rules.oversPerInnings;
+    return { ...base, inningsIndex: 1, beforeStart: true, overs, minOvers: 1, target: state.revisedTarget ?? inn!.runs + 1 };
+  }
+  if (!canCloseInnings(state) || !inn || inn.superOver !== null) return null;
+  const started = Math.floor(inn.legalBalls / BALLS_PER_OVER) + (overInProgress(inn) ? 1 : 0);
+  return {
+    ...base,
+    inningsIndex: inn.index === 0 ? 0 : 1,
+    beforeStart: false,
+    overs: inn.oversLimit,
+    minOvers: Math.max(1, started),
+    target: inn.target,
+  };
+}
+
+/**
+ * A revised target in proportion to the overs (the "average run rate" method): the first
+ * innings runs scaled from the overs the first innings had to the overs the second innings has,
+ * rounded down, plus one. Only a suggestion; DLS is not supported.
+ */
+export function suggestedTarget(state: MatchState, overs: number): number | null {
+  const first = state.innings[0];
+  if (!first?.completed) return null;
+  return Math.floor((first.runs * overs) / first.oversLimit) + 1;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Event application (mutates `state`; returns an error message instead of applying if invalid)
 
 function initialState(setup: MatchSetup): MatchState {
   const setupErrors = validateMatchSetup(setup);
   if (setupErrors.length > 0) throw new ScoringError(`Invalid match setup: ${setupErrors[0]}`);
-  // Players who join during the match are added to these copies of the lineups.
+  // Players who join during the match are added to these copies of the lineups, and revised
+  // overs and bowling limits change the copy of the rules.
   const copy = (team: TeamLineup): TeamLineup => ({ ...team, players: [...team.players] });
-  const working: MatchSetup = { ...setup, teams: [copy(setup.teams[0]), copy(setup.teams[1])] };
-  return { setup: working, innings: [], next: { type: 'selectOpeners', inningsIndex: 0 }, result: null };
+  const working: MatchSetup = { ...setup, rules: { ...setup.rules }, teams: [copy(setup.teams[0]), copy(setup.teams[1])] };
+  return {
+    setup: working,
+    innings: [],
+    next: { type: 'selectOpeners', inningsIndex: 0 },
+    result: null,
+    scheduledOvers: setup.rules.oversPerInnings,
+    revisedTarget: null,
+  };
 }
 
 function applyEvent(state: MatchState, event: MatchEvent, eventIndex: number): string | null {
@@ -442,6 +513,10 @@ function applyEvent(state: MatchState, event: MatchEvent, eventIndex: number): s
       return applyReplaceBowler(state, event.playerId);
     case 'endInnings':
       return applyEndInnings(state);
+    case 'closeInnings':
+      return applyCloseInnings(state);
+    case 'reviseOvers':
+      return applyReviseOvers(state, event);
     case 'superOver':
       return applySuperOver(state);
     case 'addPlayer':
@@ -627,8 +702,10 @@ function applyInningsStart(state: MatchState, strikerId: string, nonStrikerId: s
     battingTeam,
     bowlingTeam,
     oversLimit: superOver === null ? state.setup.rules.oversPerInnings : SUPER_OVER_OVERS,
+    plannedOvers: superOver === null ? state.scheduledOvers : SUPER_OVER_OVERS,
     wicketsLimit: superOver === null ? teamSize(battingTeam) - 1 : Math.min(SUPER_OVER_WICKETS, teamSize(battingTeam) - 1),
-    target: index % 2 === 1 ? state.innings[index - 1].runs + 1 : null,
+    target: index === 1 && state.revisedTarget !== null ? state.revisedTarget : index % 2 === 1 ? state.innings[index - 1].runs + 1 : null,
+    targetRevised: index === 1 && state.revisedTarget !== null,
     runs: 0,
     wickets: 0,
     legalBalls: 0,
@@ -846,6 +923,117 @@ function applyEndInnings(state: MatchState): string | null {
   }
   finishInnings(state, currentInnings(state)!, 'allOut');
   return null;
+}
+
+function applyCloseInnings(state: MatchState): string | null {
+  if (!canCloseInnings(state)) return 'There is no innings in progress to end.';
+  finishInnings(state, currentInnings(state)!, 'closed');
+  return null;
+}
+
+function applyReviseOvers(state: MatchState, event: ReviseOversEvent): string | null {
+  const revision = oversRevision(state);
+  if (!revision) {
+    const inn = currentInnings(state);
+    if (state.next.type !== 'matchComplete' && inn && inn.superOver !== null && !inn.completed) {
+      return 'The overs of a Super Over cannot be changed.';
+    }
+    return state.next.type === 'matchComplete'
+      ? 'The match is already complete.'
+      : 'The overs can only be changed during an innings of the match, or in the innings break.';
+  }
+  const { overs, target, maxOversPerBowler } = event;
+  if (!Number.isInteger(overs) || overs < revision.minOvers || overs > revision.maxOvers) {
+    if (revision.minOvers === revision.maxOvers) return `All ${revision.maxOvers} overs have already been started.`;
+    const started = revision.minOvers > 1 ? ` (${revision.minOvers} have already been started)` : '';
+    return `Choose from ${revision.minOvers} to ${revision.maxOvers} overs${started}.`;
+  }
+  if (revision.inningsIndex === 0 && target !== null) return 'A revised target is only set for the second innings.';
+  if (revision.inningsIndex === 1 && (!Number.isInteger(target) || target! < 1)) {
+    return 'Enter the target for the second innings: a whole number of runs, at least 1.';
+  }
+  if (maxOversPerBowler !== null && (!Number.isInteger(maxOversPerBowler) || maxOversPerBowler < 1)) {
+    return 'The maximum overs per bowler must be a positive whole number, or no limit.';
+  }
+  if (overs === revision.overs && target === revision.target && maxOversPerBowler === revision.maxOversPerBowler) {
+    return 'Nothing would change.';
+  }
+
+  const rules = state.setup.rules;
+  const inn = revision.beforeStart ? null : currentInnings(state)!;
+  const before = {
+    oversPerInnings: rules.oversPerInnings,
+    maxOversPerBowler: rules.maxOversPerBowler,
+    revisedTarget: state.revisedTarget,
+    oversLimit: inn?.oversLimit,
+    target: inn?.target ?? null,
+    targetRevised: inn?.targetRevised ?? false,
+  };
+  // A target is "revised" when it differs from the first innings runs + 1.
+  const naturalTarget = state.innings[0].runs + 1;
+  rules.maxOversPerBowler = maxOversPerBowler;
+  if (inn) {
+    inn.oversLimit = overs;
+    if (revision.inningsIndex === 0) rules.oversPerInnings = overs; // the second innings gets the same
+    else {
+      inn.target = target;
+      inn.targetRevised = target !== naturalTarget;
+    }
+  } else {
+    rules.oversPerInnings = overs;
+    state.revisedTarget = target !== naturalTarget ? target : null;
+  }
+
+  // The innings ends at once if the revised target is already reached or its new overs have all
+  // been bowled. Otherwise the bowling limit must still let the unfinished innings be completed.
+  let endsNow: InningsEndReason | null = null;
+  if (inn && inn.target !== null && inn.runs >= inn.target) endsNow = 'targetReached';
+  else if (inn && inn.legalBalls >= overs * BALLS_PER_OVER) endsNow = 'overs';
+  const problem =
+    (inn && !endsNow ? bowlingLimitProblem(state, inn) : null) ??
+    (revision.inningsIndex === 0 || revision.beforeStart ? fullInningsProblem(state, state.innings[0].battingTeam) : null);
+  if (problem) {
+    Object.assign(rules, { oversPerInnings: before.oversPerInnings, maxOversPerBowler: before.maxOversPerBowler });
+    state.revisedTarget = before.revisedTarget;
+    if (inn) Object.assign(inn, { oversLimit: before.oversLimit, target: before.target, targetRevised: before.targetRevised });
+    return problem;
+  }
+  if (inn && endsNow) finishInnings(state, inn, endsNow);
+  return null;
+}
+
+const tooFewBowlers = (max: number) =>
+  `With at most ${max} ${max === 1 ? 'over' : 'overs'} each, there are not enough bowlers left to bowl the remaining overs without someone bowling two in a row.`;
+
+/** Can the rest of `inn` still be bowled under the bowling limit? A reason if not. */
+function bowlingLimitProblem(state: MatchState, inn: InningsState): string | null {
+  const max = state.setup.rules.maxOversPerBowler;
+  if (max === null) return null;
+  if (inn.bowlerId !== null) {
+    // The bowler of the current over bowls the rest of it (all of it, if it has not started).
+    const ballsLeftInOver = BALLS_PER_OVER - (inn.legalBalls % BALLS_PER_OVER);
+    const balls = inn.bowlers.find((b) => b.playerId === inn.bowlerId)?.legalBalls ?? 0;
+    if (balls + ballsLeftInOver > max * BALLS_PER_OVER) {
+      return `${nameIn(inn.bowlingTeam, inn.bowlerId)} is bowling this over and would bowl more than ${max} ${max === 1 ? 'over' : 'overs'}. Change the bowler first, or choose a higher limit.`;
+    }
+    return canFinishInnings(state, inn, inn.bowlerId, ballsLeftInOver, inn.currentOverBowlerIds) ? null : tooFewBowlers(max);
+  }
+  const remaining = inn.oversLimit - Math.floor(inn.legalBalls / BALLS_PER_OVER);
+  const left = new Map<string, number>();
+  for (const p of inn.bowlingTeam.players) left.set(p.playerId, wholeOversLeft(inn, p.playerId, max, 0));
+  for (let i = 0; i < openSlots(inn.bowlingTeam); i++) left.set(`\u0000open-${i}`, max);
+  return canBowlRemainingOvers(remaining, left, inn.previousOverBowlerIds) ? null : tooFewBowlers(max);
+}
+
+/** Can `bowlingTeam` bowl a whole second innings under the current rules? A reason if not. */
+function fullInningsProblem(state: MatchState, bowlingTeam: TeamLineup): string | null {
+  const { maxOversPerBowler: max, oversPerInnings } = state.setup.rules;
+  if (max === null) return null;
+  const allowance = new Map<string, number>();
+  for (let i = 0; i < teamSize(bowlingTeam); i++) allowance.set(String(i), max);
+  return canBowlRemainingOvers(oversPerInnings, allowance, null)
+    ? null
+    : `With ${teamSize(bowlingTeam)} players (${bowlingTeam.name}) and at most ${max} overs each, ${oversPerInnings} overs cannot be bowled without someone bowling two in a row.`;
 }
 
 function nextWithinInnings(inn: InningsState): NextAction {
@@ -1144,14 +1332,18 @@ function decideResult(state: MatchState, second: InningsState): MatchResult {
     const winner = second.runs > first.runs ? second.battingTeam : first.battingTeam;
     return { type: 'superOverWin', winnerTeamId: winner.teamId, superOvers: second.superOver };
   }
-  if (second.runs > first.runs) {
+  // Measured against the target, which is the first innings runs + 1 unless it was revised.
+  const target = second.target!;
+  const revised = second.targetRevised ? { revisedTarget: true as const } : {};
+  if (second.runs >= target) {
     return {
       type: 'winByWickets',
       winnerTeamId: second.battingTeam.teamId,
       wickets: second.wicketsLimit - second.wickets,
       ballsRemaining: second.oversLimit * BALLS_PER_OVER - second.legalBalls,
+      ...revised,
     };
   }
-  if (second.runs === first.runs) return { type: 'tie' };
-  return { type: 'winByRuns', winnerTeamId: first.battingTeam.teamId, runs: first.runs - second.runs };
+  if (second.runs === target - 1) return { type: 'tie', ...revised };
+  return { type: 'winByRuns', winnerTeamId: first.battingTeam.teamId, runs: target - 1 - second.runs, ...revised };
 }

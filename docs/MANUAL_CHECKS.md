@@ -92,8 +92,10 @@ restore. These checks cover what only a real phone can show. Run them on the **r
 - [ ] Schedule match: two teams, date and time (Android pickers), venue, T10 format. It shows
       under Upcoming on the Matches tab, soonest first.
 - [ ] Edit it; cancel it (it moves to the end, marked Cancelled); restore it.
-- [ ] Match poster: both templates look right with and without logos and with a long venue;
-      save the PNG to Pictures and share it. Check the PNG is 1080 × 1350.
+- [ ] Match poster: all five templates (Pitch green, Floodlights, Head to head, Classic, Prime
+      time) look right with and without logos, with a long team name, a long venue and no venue;
+      save the PNG to Pictures and share it. Check the PNG is 1080 × 1350 and that the saved
+      Head to head, Classic and Prime time posters keep their colour gradients.
 - [ ] Start scoring from the upcoming match: teams, overs and venue are filled in. After
       starting, the upcoming entry disappears and the match is In progress.
 - [ ] Open the upcoming match again (e.g. with Back) and tap Start scoring: it says the match
@@ -149,6 +151,28 @@ restore. These checks cover what only a real phone can show. Run them on the **r
       over with Edit, Swap / Retire batter / Change bowler, the full pad including Undo, and
       "Abandon match"), with no scrolling. On a very small phone it scrolls a little instead of
       cutting buttons off.
+
+## Pause, ending an innings, settings, reduced overs and the match list
+
+- [ ] Start a match. Before the first ball, More… > Edit match settings: change the overs to 5, one
+      team to 6 players and the bowling limit to 2; the score header shows "/ 5 ov". Score a ball:
+      Edit match settings is now greyed out with an explanation.
+- [ ] Pause > Rain > Pause match: the pad is replaced by "MATCH PAUSED · Rain · since …" with
+      Resume. Back to Matches: the match is under **Paused** with the reason. Close and reopen the
+      app: still paused. Resume match: the pad is back and the next ball scores normally.
+- [ ] Mid-over, More… > Change overs: fewer overs than already started is refused; 3 overs saves,
+      and the header shows "/ 3 ov". Undo removes it.
+- [ ] More… > End innings now, confirm: the innings break shows "innings ended early" and the target
+      is the runs + 1. The scorecard notes "Innings ended early".
+- [ ] In the innings break, Change overs to fewer overs: the target field follows the suggestion
+      (average run rate), a typed target is kept, and "Use the suggested target" brings it back.
+      Save: the break shows "(revised target)". Finish the chase: the result ends "(revised
+      target)", and the scorecard, PDF and image note the reduced overs and the revised target.
+- [ ] Abandon a match: it is listed under **Abandoned**. Undo: it is Live again.
+- [ ] Matches tab search: a team name, part of a venue, a date such as "31 Oct", "abandoned" and
+      "Rain" each find the right matches; nonsense shows "No matches found".
+- [ ] Restore a backup made before this version: matches, results and abandoned matches are right,
+      and nothing is paused.
 
 ## Icon, splash screen and intro (release APK)
 

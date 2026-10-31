@@ -126,7 +126,7 @@ export function NewBowlerPanel({ state, saving, onSubmit, adder }: AddingPanelPr
   );
 }
 
-const END_REASONS = { allOut: 'all out', overs: 'overs complete', targetReached: 'target reached', abandoned: 'abandoned' };
+const END_REASONS = { allOut: 'all out', overs: 'overs complete', targetReached: 'target reached', abandoned: 'abandoned', closed: 'innings ended early' };
 
 const NO_OPENERS: Openers = { strikerId: null, nonStrikerId: null, bowlerId: null };
 
@@ -175,7 +175,8 @@ export function InningsBreakPanel({ state, saving, onSubmit, adder }: AddingPane
             {previous.endReason ? `, ${END_REASONS[previous.endReason]}` : ''}).
           </Text>
           <Text style={styles.lead}>
-            {batting.name} need {previous.runs + 1} to win from {balls} balls.
+            {batting.name} need {index === 1 ? (state.revisedTarget ?? previous.runs + 1) : previous.runs + 1} to win from {balls} balls
+            {index === 1 && state.revisedTarget !== null ? ' (revised target)' : ''}.
           </Text>
         </>
       ) : (

@@ -22,7 +22,7 @@ import {
   type MatchEventBackupRow,
 } from '../data/backupTables';
 import { eventToRow } from '../data/matchEventRows';
-import { storedMatchFromRows, type MatchRow } from '../data/matchRepository';
+import { PAUSE_REASON_MAX_LENGTH, storedMatchFromRows, type MatchRow } from '../data/matchRepository';
 import { LATEST_SCHEMA_VERSION } from '../data/migrations';
 import { RepositoryError } from '../data/RepositoryError';
 import { awardsError } from '../domain/awards';
@@ -233,6 +233,13 @@ const UPGRADES: Record<number, (d: Record<string, unknown>) => Record<string, un
       matchEvents: mapRows(d.matchEvents, (e) => ({ ...e, team_id: null, player_name: null })),
     };
   },
+  // 8 -> 9: abandoned flag (recomputed from the events when checked), no paused matches, and
+  // the reviseOvers event's columns (none).
+  8: (d) => ({
+    ...d,
+    matches: mapRows(d.matches, (m) => ({ ...m, abandoned: 0, paused_at: null, pause_reason: null })),
+    matchEvents: mapRows(d.matchEvents, (e) => ({ ...e, revised_overs: null, revised_target: null, revised_bowler_limit: null })),
+  }),
 };
 
 /** Applies `fn` to each row that is an object; anything else is left for the structure check. */
@@ -359,6 +366,11 @@ function checkReferences(d: BackupData): string[] {
     if (m.free_hit_after_no_ball !== 0 && m.free_hit_after_no_ball !== 1) {
       errors.push(`${matchLabel(m)} has an invalid free-hit setting.`);
     }
+    const reason = m.pause_reason;
+    if ((reason !== null && (m.paused_at === null || reason.length === 0 || reason.length > PAUSE_REASON_MAX_LENGTH)) ||
+        (m.paused_at !== null && Number.isNaN(Date.parse(m.paused_at)))) {
+      errors.push(`${matchLabel(m)} has an invalid pause.`);
+    }
   }
   const lineupKeys = new Set<string>();
   for (const mp of d.matchPlayers) {
@@ -478,7 +490,16 @@ function replayMatches(d: BackupData): { ok: true; data: BackupData; summary: Ba
         continue;
       }
       const update = rowUpdate(loaded.state);
-      matches.push({ ...m, status: update.status, summary: update.summary });
+      // Only a match in progress can be paused.
+      const paused = update.status === 'inProgress' && m.paused_at !== null;
+      matches.push({
+        ...m,
+        status: update.status,
+        summary: update.summary,
+        abandoned: update.abandoned ? 1 : 0,
+        paused_at: paused ? m.paused_at : null,
+        pause_reason: paused ? m.pause_reason : null,
+      });
 
       storableEvents(loaded.state, loaded.events).forEach((item, seq) => {
         events.push({ ...eventToRow(seq, item), match_id: m.id, created_at: rows[seq].created_at });

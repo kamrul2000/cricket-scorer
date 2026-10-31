@@ -9,6 +9,7 @@ import {
   extrasLine,
   formatOvers,
   inningsLabel,
+  inningsNotes,
   ordinal,
   overBowlersText,
   playerName,
@@ -188,7 +189,11 @@ export function InningsScorecard({ state, inn }: { state: MatchState; inn: Innin
           ))}
         </View>
       ) : null}
-      {inn.endReason === 'abandoned' ? <Text style={styles.line}>Innings ended when the match was abandoned.</Text> : null}
+      {inningsNotes(inn).map((note) => (
+        <Text key={note} style={styles.line}>
+          {note}.
+        </Text>
+      ))}
       {inn.partnerships.length ? <Text style={styles.muted}>Partnership balls exclude wides.</Text> : null}
     </View>
   );

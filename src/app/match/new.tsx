@@ -30,6 +30,7 @@ import { useFocusLoad } from '../../hooks/useFocusLoad';
 import { useGuardedAction } from '../../hooks/useGuardedAction';
 import { colors, font, spacing } from '../../theme/theme';
 import { errorMessage } from '../../utils/errors';
+import { parseWhole } from '../../utils/numbers';
 
 const STEP_TITLES = ['Format', 'Lineup', 'Lineup', 'Toss', 'Openers'];
 
@@ -46,10 +47,6 @@ interface TeamOption {
 interface Leaders {
   captainId: string | null;
   viceCaptainId: string | null;
-}
-
-function parseWhole(text: string): number | null {
-  return /^\d+$/.test(text.trim()) ? Number(text.trim()) : null;
 }
 
 const sizeOptions = Array.from({ length: MAX_PLAYERS_PER_SIDE - MIN_PLAYERS_PER_SIDE + 1 }, (_, i) => ({

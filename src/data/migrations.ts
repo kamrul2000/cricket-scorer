@@ -336,6 +336,72 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_match_events_added_player ON match_events (player_id) WHERE type = 'addPlayer';
     `,
   },
+  {
+    version: 9,
+    description: 'paused and abandoned matches, closing an innings early, and reduced overs',
+    // A match can be paused (with an optional reason) and the match list shows abandoned
+    // matches apart: the abandoned flag is recomputed by the engine on every change, and for
+    // existing matches it follows from the stored result text. The events table is rebuilt like
+    // version 8 for the closeInnings and reviseOvers types and reviseOvers' three columns.
+    sql: `
+      ALTER TABLE matches ADD COLUMN abandoned INTEGER NOT NULL DEFAULT 0 CHECK (abandoned IN (0, 1));
+      UPDATE matches SET abandoned = 1 WHERE status = 'completed' AND summary = 'No result (match abandoned)';
+      ALTER TABLE matches ADD COLUMN paused_at TEXT;
+      ALTER TABLE matches ADD COLUMN pause_reason TEXT CHECK (pause_reason IS NULL OR length(pause_reason) BETWEEN 1 AND 40);
+
+      CREATE TABLE match_events_v9 (
+        match_id        TEXT NOT NULL REFERENCES matches (id) ON DELETE CASCADE,
+        seq             INTEGER NOT NULL CHECK (seq >= 0),
+        type            TEXT NOT NULL CHECK (type IN ('inningsStart', 'delivery', 'newBatter', 'newBowler', 'swapBatters', 'abandon',
+                                                      'retire', 'replaceBowler', 'endInnings', 'superOver', 'addPlayer',
+                                                      'closeInnings', 'reviseOvers')),
+        innings_index   INTEGER NOT NULL CHECK (innings_index >= 0),
+        striker_id      TEXT,
+        non_striker_id  TEXT,
+        bowler_id       TEXT,
+        player_id       TEXT,
+        ball_type       TEXT CHECK (ball_type IN ('fair', 'wide', 'noBall')),
+        runs_from       TEXT CHECK (runs_from IN ('bat', 'byes', 'legByes')),
+        runs_completed  INTEGER CHECK (runs_completed >= 0),
+        boundary        TEXT CHECK (boundary IN ('none', 'four', 'six', 'overthrowFour')),
+        dismissal_kind  TEXT CHECK (dismissal_kind IN ('bowled', 'caught', 'lbw', 'stumped', 'hitWicket', 'runOut')),
+        dismissed_player_id TEXT,
+        run_out_end     TEXT CHECK (run_out_end IN ('striker', 'nonStriker')),
+        fielder_id      TEXT,
+        retirement      TEXT CHECK (retirement IN ('hurt', 'out')),
+        team_id         TEXT,
+        player_name     TEXT CHECK (player_name IS NULL OR length(player_name) BETWEEN 1 AND 60),
+        revised_overs   INTEGER CHECK (revised_overs IS NULL OR revised_overs >= 1),
+        revised_target  INTEGER CHECK (revised_target IS NULL OR revised_target >= 1),
+        revised_bowler_limit INTEGER CHECK (revised_bowler_limit IS NULL OR revised_bowler_limit >= 1),
+        batter_runs     INTEGER,
+        extras_wides    INTEGER,
+        extras_no_balls INTEGER,
+        extras_byes     INTEGER,
+        extras_leg_byes INTEGER,
+        total_runs      INTEGER,
+        bowler_runs     INTEGER,
+        is_legal_ball   INTEGER CHECK (is_legal_ball IN (0, 1)),
+        is_ball_faced   INTEGER CHECK (is_ball_faced IN (0, 1)),
+        is_free_hit     INTEGER CHECK (is_free_hit IN (0, 1)),
+        wicket_credited_to_bowler INTEGER CHECK (wicket_credited_to_bowler IN (0, 1)),
+        created_at      TEXT NOT NULL,
+        PRIMARY KEY (match_id, seq)
+      );
+      INSERT INTO match_events_v9 (match_id, seq, type, innings_index, striker_id, non_striker_id, bowler_id, player_id,
+          ball_type, runs_from, runs_completed, boundary, dismissal_kind, dismissed_player_id, run_out_end, fielder_id,
+          retirement, team_id, player_name, batter_runs, extras_wides, extras_no_balls, extras_byes, extras_leg_byes,
+          total_runs, bowler_runs, is_legal_ball, is_ball_faced, is_free_hit, wicket_credited_to_bowler, created_at)
+        SELECT match_id, seq, type, innings_index, striker_id, non_striker_id, bowler_id, player_id,
+          ball_type, runs_from, runs_completed, boundary, dismissal_kind, dismissed_player_id, run_out_end, fielder_id,
+          retirement, team_id, player_name, batter_runs, extras_wides, extras_no_balls, extras_byes, extras_leg_byes,
+          total_runs, bowler_runs, is_legal_ball, is_ball_faced, is_free_hit, wicket_credited_to_bowler, created_at
+        FROM match_events;
+      DROP TABLE match_events;
+      ALTER TABLE match_events_v9 RENAME TO match_events;
+      CREATE INDEX idx_match_events_added_player ON match_events (player_id) WHERE type = 'addPlayer';
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

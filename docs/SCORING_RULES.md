@@ -16,11 +16,11 @@ playing conditions.**
 | Rule | Behaviour | Source |
 |---|---|---|
 | Innings | One innings per side, plus Super Overs after a tie if the scorer chooses (section 18). | Law 13.1.2 (agreement) |
-| Overs | A positive whole number of overs per innings, chosen at setup (max 100). | Match agreement |
+| Overs | A positive whole number of overs per innings, chosen at setup (max 100). It can be changed until the first ball (section 21), and reduced during the match (section 22). | Match agreement |
 | Balls per over | 6 valid balls. | Law 17.1 |
 | Players per side | 2 to 11 for each team (default 11). The two teams may have **different** numbers (for example 11 v 10). The players need not all be named at the start (section 19). | **Local override.** The Laws assume 11 (Law 1.1), but allow other numbers by agreement. |
 | All out | When the batting side's players per side − 1 wickets have fallen, or when a batter is needed, nobody is left who may bat and the lineup is full (sections 15 and 19). "Last batter stands" is **not** supported. | Law 13.3 |
-| Result | Higher total wins (Law 16.2). Equal totals with both innings complete is a tie (Law 16.5.1). Margins are in runs (side batting first) or wickets (side batting second, = that side's players − 1 − wickets lost). An abandoned match has no result (section 11). | Law 16 |
+| Result | Higher total wins (Law 16.2). Equal totals with both innings complete is a tie (Law 16.5.1). Margins are in runs (side batting first) or wickets (side batting second, = that side's players − 1 − wickets lost). An abandoned match has no result (section 11). With a revised target, the chase is measured against it (section 22). | Law 16 |
 | Match end | The match ends the instant the target is reached (see section 6). | Law 16.6 |
 
 ## 2. Counting balls
@@ -144,7 +144,7 @@ The free hit is **not** in the MCC Laws. It is an ICC limited-overs playing cond
 
 Undo removes the most recent event: a delivery, a new-batter choice, a new-bowler choice, an
 innings start, a batter swap, an abandon, a retirement, a bowler replacement, ending an innings
-or starting a Super Over. The match state is always recomputed from the remaining events, so
+(either way), changing the overs or starting a Super Over. The match state is always recomputed from the remaining events, so
 undo reverses everything that event caused. That includes over completion, free hits, innings
 completion and the match result. To correct an older delivery without undoing what came after
 it, edit it (section 17).
@@ -163,8 +163,9 @@ between overs). It is refused while a new batter has to be chosen, and after the
 
 "Abandon match" ends the match immediately with **no result** (for example rain or bad
 light). The score so far is kept, the current innings is marked as ended by abandonment, and
-no further deliveries can be recorded. It can be undone. Reduced targets (DLS or any other
-method) are **not** supported.
+no further deliveries can be recorded. It can be undone. If play can continue with fewer overs,
+change the overs instead (section 22). Abandoned matches are listed under **Abandoned** on the
+Matches tab.
 
 ## 12. Statistics shown
 
@@ -302,3 +303,56 @@ players then, even none. The rest join while scoring, when they are needed:
 - Players joining later never change how earlier balls are replayed: the lineup at each point of
   the history is the one recorded up to then. An earlier ball can therefore only be edited to
   name a fielder who was in the lineup at that time.
+
+## 20. Ending an innings early (app rule)
+
+"More… > End innings now" closes the innings in progress at any point between deliveries: by
+agreement, a declaration, the batting side giving up, or any other reason. It is its own action
+in the match history and can be undone.
+
+- The innings counts as complete. After the first innings, the second innings needs the runs
+  scored + 1, in the full overs (or the reduced overs, section 22). After the second innings, the
+  result is decided on the runs scored: the side batting first wins by the runs short of the
+  target, or the match is tied.
+- The scorecard notes "Innings ended early". The batters at the crease are not out.
+- This is different from "No one else can bat: end innings" (section 19), which counts as all out.
+
+## 21. Changing match settings before the first ball (app rule)
+
+Until the first ball of the match is bowled, "More… > Edit match settings" changes the overs per
+innings, each team's players per side, the maximum overs per bowler and the free-hit rule. The
+recorded actions so far (openers, players added) are checked again with the new settings, so a
+team cannot be made smaller than the players already named. The toss and the openers cannot be
+changed here. From the first ball on, only the overs can be changed (section 22).
+
+## 22. Reduced overs and revised targets (app rule)
+
+"More… > Change overs" records an interruption (rain, bad light, a late start) that costs overs:
+
+- **First innings:** the new number of overs applies to both innings. The target stays the first
+  innings runs + 1.
+- **Innings break and second innings:** the second innings gets the new overs and a **revised
+  target**. The app suggests one in proportion to the overs (the "average run rate" method):
+  first innings runs × second innings overs ÷ first innings overs, rounded down, + 1. The scorer
+  can type any target the captains agree. The **DLS method is not supported**.
+- Overs already started cannot be taken away, and the overs can never be more than the match was
+  set up with. A Super Over's overs cannot be changed.
+- If the new overs have all been bowled, the innings ends at once. If the chasing side has already
+  reached the revised target, it wins at once.
+- The maximum overs per bowler can be changed at the same time (in shortened matches it is often
+  a fifth of the overs). The change is refused if the bowler of the current over could not finish
+  it, or if the remaining overs could no longer be bowled without someone bowling two in a row.
+- The result says "(revised target)" when the target was revised, for example "Bravo won by 6
+  wickets (12 balls left) (revised target)". Runs margins are counted from the revised target.
+- The scorecard notes "Reduced to 15 overs (from 20)" and "Revised target 121".
+
+## 23. Pausing a match and match status (app rule)
+
+"Pause" stops scoring until "Resume match", for example for rain, bad light or a break; a reason
+is optional. Pausing is not part of the match history (it changes no score and is not undone): it
+is stored with the match, and while it lasts the scoring pad is replaced by a Resume panel. The
+overs can still be changed, and the match abandoned, while it is paused.
+
+The Matches tab lists matches as **Upcoming** (scheduled, or cancelled), **Live**, **Paused**,
+**Completed** and **Abandoned**, and has a search box for team names, venue, date (for example
+"8 Nov"), result or pause reason.

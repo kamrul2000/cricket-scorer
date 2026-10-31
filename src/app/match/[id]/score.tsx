@@ -1,7 +1,8 @@
 // The scoring screen. Every tap becomes one event that is validated by the scoring engine and
 // saved in a transaction before the screen updates. Laid out to fit one phone screen: score,
-// batters and bowler, this over, the occasional actions, then the pad fills the rest. Prompts
-// (next batter, next bowler, ...) take the pad's place and scroll if they are long.
+// batters and bowler, this over, the occasional actions, then the pad fills the rest, with
+// Pause, More and Abandon below it. Prompts (next batter, next bowler, ...) and the paused
+// panel take the pad's place; prompts scroll if they are long.
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -12,6 +13,13 @@ import { ReplaceBowlerPanel, RetirePanel } from '../../../components/scoring/Act
 import { BallPicker } from '../../../components/scoring/BallPicker';
 import { DeliveryEditor } from '../../../components/scoring/DeliveryEditor';
 import { CreasePanel } from '../../../components/scoring/CreasePanel';
+import {
+  ChangeOversSheet,
+  MatchOptionsSheet,
+  MatchSettingsSheet,
+  PausedPanel,
+  PauseSheet,
+} from '../../../components/scoring/MatchControls';
 import { OverStrip } from '../../../components/scoring/OverStrip';
 import { ScoreHeader } from '../../../components/scoring/ScoreHeader';
 import { ScoringPad, type EditorPreset } from '../../../components/scoring/ScoringPad';
@@ -31,6 +39,22 @@ import { colors, font, radius, spacing } from '../../../theme/theme';
 
 /** The delivery editor: a new ball from a preset, or (with editIndex) an earlier ball. */
 type EditorState = { preset: EditorPreset; editIndex?: number };
+
+/** A slim button for the row under the pad. */
+function SlimButton({ label, onPress, disabled, danger }: { label: string; onPress: () => void; disabled: boolean; danger?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      onPress={disabled ? undefined : onPress}
+      style={({ pressed }) => [styles.slim, danger && styles.slimDanger, pressed && styles.pressed, disabled && styles.disabled]}
+    >
+      <Text style={[styles.slimText, danger && styles.slimDangerText]} numberOfLines={1} adjustsFontSizeToFit>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
 
 /** A small button for the occasional actions row. */
 function ActionButton({ label, onPress, disabled, active }: { label: string; onPress: () => void; disabled: boolean; active?: boolean }) {
@@ -53,11 +77,13 @@ export default function ScoreScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { match, loadError, saving, saveError, submit, edit, undo, retry, discardFailed, reload } = useMatchScoring(id);
+  const { match, loadError, saving, saveError, submit, edit, undo, changeSettings, setPause, retry, discardFailed, reload } =
+    useMatchScoring(id);
   const adder = useLineupAdder(match, submit);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [panel, setPanel] = useState<'retire' | 'bowler' | null>(null);
   const [pickingBall, setPickingBall] = useState(false);
+  const [sheet, setSheet] = useState<'pause' | 'more' | 'overs' | 'settings' | null>(null);
   const [quickError, setQuickError] = useState<string | null>(null);
   const [slowSave, setSlowSave] = useState(false);
 
@@ -90,6 +116,8 @@ export default function ScoreScreen() {
   const { state, events, setup } = match;
   const inn = currentInnings(state);
   const blocked = saving || !!saveError;
+  // While paused, the pad and the player actions are replaced by the Resume panel.
+  const paused = !!match.pause && !state.result;
 
   const quick = async (input: Pick<DeliveryEvent, 'runs' | 'boundary'>) => {
     if (!inn?.strikerId || !inn.nonStrikerId || !inn.bowlerId) return;
@@ -166,8 +194,8 @@ export default function ScoreScreen() {
   // An open action panel takes the place of the pad (or the current prompt) until it closes.
   const shownPanel =
     panel === 'retire' && retireAllowed ? 'retire' : panel === 'bowler' && bowlerChangeAllowed ? 'bowler' : null;
-  const inPlay = !!inn && !inn.completed && (next.type === 'delivery' || next.type === 'selectBowler');
-  const padShown = !shownPanel && next.type === 'delivery';
+  const inPlay = !paused && !!inn && !inn.completed && (next.type === 'delivery' || next.type === 'selectBowler');
+  const padShown = !paused && !shownPanel && next.type === 'delivery';
 
   return (
     <View style={styles.screen}>
@@ -204,8 +232,8 @@ export default function ScoreScreen() {
         {inn ? (
           <OverStrip
             inn={inn}
-            onSelectBall={blocked ? undefined : openEdit}
-            onPickBall={hasDeliveries && !blocked ? () => setPickingBall(true) : undefined}
+            onSelectBall={blocked || paused ? undefined : openEdit}
+            onPickBall={hasDeliveries && !blocked && !paused ? () => setPickingBall(true) : undefined}
           />
         ) : null}
         {inPlay ? (
@@ -228,7 +256,9 @@ export default function ScoreScreen() {
 
         {quickError ? <ErrorBanner message={quickError} /> : null}
 
-        {padShown ? (
+        {paused ? (
+          <PausedPanel pause={match.pause!} saving={saving} onResume={() => setPause(null)} />
+        ) : padShown ? (
           <ScoringPad
             disabled={blocked}
             onRuns={(runs) => void quick({ runs, boundary: 'none' })}
@@ -262,13 +292,11 @@ export default function ScoreScreen() {
         )}
 
         {next.type !== 'matchComplete' ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={blocked ? undefined : confirmAbandon}
-            style={({ pressed }) => [styles.abandon, pressed && styles.pressed, blocked && styles.disabled]}
-          >
-            <Text style={styles.abandonText}>Abandon match (no result)</Text>
-          </Pressable>
+          <View style={styles.actions}>
+            {!paused ? <SlimButton label="Pause" onPress={() => setSheet('pause')} disabled={blocked} /> : null}
+            <SlimButton label="More…" onPress={() => setSheet('more')} disabled={blocked} />
+            <SlimButton label="Abandon match" onPress={confirmAbandon} disabled={blocked} danger />
+          </View>
         ) : null}
       </ScrollView>
 
@@ -295,6 +323,23 @@ export default function ScoreScreen() {
         />
       ) : null}
       {pickingBall ? <BallPicker state={state} onSelect={openEdit} onClose={() => setPickingBall(false)} /> : null}
+      {sheet === 'pause' ? (
+        <PauseSheet
+          saving={saving}
+          onPause={(reason) => {
+            setPanel(null);
+            return setPause({ reason });
+          }}
+          onClose={() => setSheet(null)}
+        />
+      ) : null}
+      {sheet === 'more' ? (
+        <MatchOptionsSheet state={state} saving={saving} onSubmit={submit} onOpen={setSheet} onClose={() => setSheet(null)} />
+      ) : null}
+      {sheet === 'overs' ? <ChangeOversSheet state={state} saving={saving} onSubmit={submit} onClose={() => setSheet(null)} /> : null}
+      {sheet === 'settings' ? (
+        <MatchSettingsSheet state={state} saving={saving} onSave={changeSettings} onClose={() => setSheet(null)} />
+      ) : null}
     </View>
   );
 }
@@ -324,15 +369,20 @@ const styles = StyleSheet.create({
   actionTextActive: { color: colors.onPrimary },
   pressed: { opacity: 0.7 },
   disabled: { opacity: 0.4 },
-  abandon: {
+  slim: {
+    flex: 1,
     minHeight: 36,
+    paddingHorizontal: spacing.xs,
     borderRadius: radius.sm,
     borderWidth: 1.5,
-    borderColor: colors.danger,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  abandonText: { color: colors.danger, fontSize: font.small, fontWeight: '800' },
+  slimText: { color: colors.text, fontSize: font.small, fontWeight: '800' },
+  slimDanger: { borderColor: colors.danger },
+  slimDangerText: { color: colors.danger },
   savingPill: {
     position: 'absolute',
     alignSelf: 'center',

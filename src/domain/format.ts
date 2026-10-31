@@ -83,15 +83,16 @@ export function teamSizeText(setup: MatchSetup): string {
 }
 
 export function resultText(setup: MatchSetup, result: MatchResult): string {
+  const revised = 'revisedTarget' in result && result.revisedTarget ? ' (revised target)' : '';
   switch (result.type) {
     case 'tie':
-      return 'Match tied';
+      return `Match tied${revised}`;
     case 'noResult':
       return 'No result (match abandoned)';
     case 'winByRuns':
-      return `${teamName(setup, result.winnerTeamId)} won by ${plural(result.runs, 'run')}`;
+      return `${teamName(setup, result.winnerTeamId)} won by ${plural(result.runs, 'run')}${revised}`;
     case 'winByWickets':
-      return `${teamName(setup, result.winnerTeamId)} won by ${plural(result.wickets, 'wicket')} (${plural(result.ballsRemaining, 'ball')} left)`;
+      return `${teamName(setup, result.winnerTeamId)} won by ${plural(result.wickets, 'wicket')} (${plural(result.ballsRemaining, 'ball')} left)${revised}`;
     case 'superOverTie':
       return `Match tied · ${superOverName(result.superOvers)} tied`;
     case 'superOverWin':
@@ -189,6 +190,20 @@ export function ordinal(n: number): string {
   return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
 }
 
+/**
+ * Scorecard notes for an innings that did not run its planned course: "Reduced to 15 overs
+ * (from 20)", "Revised target 121", "Innings ended early", "Innings ended when the match was
+ * abandoned".
+ */
+export function inningsNotes(inn: InningsState): string[] {
+  const notes: string[] = [];
+  if (inn.oversLimit !== inn.plannedOvers) notes.push(`Reduced to ${plural(inn.oversLimit, 'over')} (from ${inn.plannedOvers})`);
+  if (inn.targetRevised && inn.target !== null) notes.push(`Revised target ${inn.target}`);
+  if (inn.endReason === 'closed') notes.push('Innings ended early');
+  if (inn.endReason === 'abandoned') notes.push('Innings ended when the match was abandoned');
+  return notes;
+}
+
 /** One-line status for the match list. */
 export function matchSummary(state: MatchState): string {
   if (state.result) return resultText(state.setup, state.result);
@@ -226,6 +241,13 @@ export function describeLastEvent(state: MatchState, events: readonly MatchEvent
       return `${name(event.playerId)} took over the bowling`;
     case 'endInnings':
       return 'Innings ended: no one else could bat';
+    case 'closeInnings':
+      return 'Innings ended early';
+    case 'reviseOvers': {
+      const target = event.target !== null ? `, target ${event.target}` : '';
+      const limit = event.maxOversPerBowler !== null ? `, at most ${plural(event.maxOversPerBowler, 'over')} per bowler` : '';
+      return `Overs changed to ${event.overs}${target}${limit}`;
+    }
     case 'superOver':
       return 'Super Over started';
     case 'addPlayer':

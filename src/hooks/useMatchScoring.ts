@@ -9,7 +9,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useMatchService } from '../data/AppDataProvider';
 import type { DeliveryEvent, MatchEvent } from '../domain/match';
 import { ScoringError, tryAddEvent, tryEditDelivery } from '../domain/scoring';
-import type { LoadedMatch } from '../services/matchService';
+import type { LoadedMatch, MatchSettings } from '../services/matchService';
 import { errorMessage } from '../utils/errors';
 
 type FailedAction =
@@ -168,6 +168,41 @@ export function useMatchScoring(matchId: string) {
     [exclusive, service, show],
   );
 
+  /**
+   * Changes outside the event history (settings, pause). A failed save changes nothing, so it is
+   * reported like a rule problem, next to the control, instead of with Retry.
+   */
+  const change = useCallback(
+    async (work: (current: LoadedMatch) => Promise<LoadedMatch>): Promise<SubmitResult> => {
+      if (busy.current) return IGNORED;
+      const current = matchRef.current;
+      if (!current) return { ok: false, error: 'The match is still loading.' };
+      if (failed.current) return { ok: false, error: 'Resolve the save problem shown above first.' };
+      let result: SubmitResult = IGNORED;
+      await exclusive(async () => {
+        try {
+          show(await work(current));
+          result = { ok: true };
+        } catch (e) {
+          result = { ok: false, error: e instanceof ScoringError ? e.message : `Not saved: ${errorMessage(e)}` };
+        }
+      });
+      return result;
+    },
+    [exclusive, show],
+  );
+
+  const changeSettings = useCallback(
+    (settings: MatchSettings) => change((current) => service.updateSettings(current, settings)),
+    [change, service],
+  );
+
+  /** Pauses with an optional reason, or resumes (null). */
+  const setPause = useCallback(
+    (pause: { reason: string | null } | null) => change((current) => service.setPause(current, pause)),
+    [change, service],
+  );
+
   /** Re-reads the database, then repeats the failed action only if it was not stored. */
   const retry = useCallback(async () => {
     const action = failed.current;
@@ -204,5 +239,5 @@ export function useMatchScoring(matchId: string) {
     await load();
   }, [load]);
 
-  return { match, loadError, saving, saveError, submit, edit, undo, retry, discardFailed, reload: load };
+  return { match, loadError, saving, saveError, submit, edit, undo, changeSettings, setPause, retry, discardFailed, reload: load };
 }

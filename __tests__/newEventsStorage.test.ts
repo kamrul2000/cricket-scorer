@@ -155,8 +155,8 @@ describe('backups with the new actions', () => {
     await matches.recordEvent(m, delivery(m, { runs: 2 }));
     const file = JSON.parse((await backups.createBackup()).json);
     file.schemaVersion = 6;
-    for (const e of file.data.matchEvents) for (const c of ['retirement', 'team_id', 'player_name']) delete e[c];
-    for (const row of file.data.matches) for (const c of ['team_a_size', 'team_b_size']) delete row[c];
+    for (const e of file.data.matchEvents) for (const c of ['retirement', 'team_id', 'player_name', 'revised_overs', 'revised_target', 'revised_bowler_limit']) delete e[c];
+    for (const row of file.data.matches) for (const c of ['team_a_size', 'team_b_size', 'abandoned', 'paused_at', 'pause_reason']) delete row[c];
     const check = parseBackup(JSON.stringify(file));
     if (!check.ok) throw new Error(check.errors.join('\n'));
     expect(check.backup.file.data.matchEvents.every((e) => e.retirement === null && e.team_id === null)).toBe(true);

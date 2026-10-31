@@ -185,6 +185,29 @@ export interface EndInningsEvent {
   type: 'endInnings';
 }
 
+/**
+ * The innings is closed before it would otherwise end, by agreement or for any other reason (a
+ * declaration, the batting side giving up, no time left). It counts as complete: the next
+ * innings starts, or the result is decided on the runs scored.
+ */
+export interface CloseInningsEvent {
+  type: 'closeInnings';
+}
+
+/**
+ * Overs lost to an interruption (rain, bad light, a late start). `overs` replaces the overs of
+ * the current main innings; while the first innings is in progress the second innings gets the
+ * same number. From the end of the first innings on, `target` is the chasing side's revised
+ * target (agreed by the scorers; the app suggests one in proportion to the overs, DLS is not
+ * supported). `maxOversPerBowler` replaces the bowling limit (null = no limit).
+ */
+export interface ReviseOversEvent {
+  type: 'reviseOvers';
+  overs: number;
+  target: number | null;
+  maxOversPerBowler: number | null;
+}
+
 /** The scores are level at the end of the match (or of a Super Over): play a Super Over. */
 export interface SuperOverEvent {
   type: 'superOver';
@@ -212,5 +235,7 @@ export type MatchEvent =
   | RetireEvent
   | ReplaceBowlerEvent
   | EndInningsEvent
+  | CloseInningsEvent
+  | ReviseOversEvent
   | SuperOverEvent
   | AddPlayerEvent;

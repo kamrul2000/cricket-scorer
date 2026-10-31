@@ -10,6 +10,7 @@ import {
   extrasLine,
   formatOvers,
   inningsLabel,
+  inningsNotes,
   ordinal,
   overBowlersText,
   playerName,
@@ -119,9 +120,9 @@ function inningsHtml(state: MatchState, inn: InningsState): string {
     }</h2>`,
     batting,
     `<p class="line"><b>Extras:</b> ${esc(extrasLine(inn.extras))}</p>`,
-    `<p class="line"><b>Total:</b> ${scoreText(inn)} (${formatOvers(inn.legalBalls)} overs)${
-      inn.endReason === 'abandoned' ? ' · match abandoned' : ''
-    }</p>`,
+    `<p class="line"><b>Total:</b> ${scoreText(inn)} (${formatOvers(inn.legalBalls)} overs)${inningsNotes(inn)
+      .map((note) => ` · ${esc(note)}`)
+      .join('')}</p>`,
   ];
   if (didNotBat.length) {
     parts.push(

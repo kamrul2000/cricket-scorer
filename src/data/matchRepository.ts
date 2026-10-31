@@ -21,12 +21,26 @@ export type MatchStatus = 'inProgress' | 'completed';
 export interface MatchSummary {
   id: string;
   status: MatchStatus;
+  /** Completed with no result (the match was abandoned). */
+  abandoned: boolean;
+  /** Set while an in-progress match is paused. */
+  pause: MatchPause | null;
   teamAName: string;
   teamBName: string;
+  venue: string;
   summary: string;
   createdAt: string;
   updatedAt: string;
 }
+
+/** A match in progress that the scorers paused (rain, bad light, a break, ...). */
+export interface MatchPause {
+  pausedAt: string;
+  /** Short reason such as "Rain", or null when none was given. */
+  reason: string | null;
+}
+
+export const PAUSE_REASON_MAX_LENGTH = 40;
 
 /** Descriptive details shown on scorecards and exports (not used by the scoring). */
 export interface MatchDetails {
@@ -45,12 +59,14 @@ export interface StoredMatch {
   events: MatchEvent[];
   awards: MatchAwards;
   details: MatchDetails;
+  pause: MatchPause | null;
 }
 
 /** Values the service recomputes from the engine on every change. */
 export interface MatchRowUpdate {
   status: MatchStatus;
   summary: string;
+  abandoned: boolean;
 }
 
 export interface MatchRow {
@@ -79,6 +95,11 @@ export interface MatchRow {
   /** Players each team fields (schema 8); the lineup rows may name fewer at the start. */
   team_a_size: number;
   team_b_size: number;
+  /** 1 = completed with no result (schema 9). */
+  abandoned: number;
+  /** Set while the match is paused, with the optional reason (schema 9). */
+  paused_at: string | null;
+  pause_reason: string | null;
 }
 
 export interface MatchPlayerRow {
@@ -139,7 +160,12 @@ export function storedMatchFromRows(m: MatchRow, players: readonly MatchPlayerRo
     bestBowlerId: m.best_bowler_id,
   };
   const details: MatchDetails = { venue: m.venue, formatName: m.format_name };
-  return { id: m.id, status: m.status, createdAt: m.created_at, updatedAt: m.updated_at, setup, events, awards, details };
+  return { id: m.id, status: m.status, createdAt: m.created_at, updatedAt: m.updated_at, setup, events, awards, details, pause: pauseOf(m) };
+}
+
+/** A completed match is never shown as paused. */
+function pauseOf(m: MatchRow): MatchPause | null {
+  return m.status === 'inProgress' && m.paused_at !== null ? { pausedAt: m.paused_at, reason: m.pause_reason } : null;
 }
 
 const INSERT_EVENT_SQL = `INSERT INTO match_events (match_id, created_at, ${EVENT_COLUMNS.join(', ')})
@@ -173,8 +199,8 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
           `INSERT INTO matches (id, status, team_a_id, team_a_name, team_b_id, team_b_name,
              overs_per_innings, players_per_side, free_hit_after_no_ball, max_overs_per_bowler,
              toss_winner_team_id, toss_decision, summary, event_count, created_at, updated_at, venue, format_name,
-             team_a_size, team_b_size)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+             team_a_size, team_b_size, abandoned)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             update.status,
@@ -195,6 +221,7 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
             details.formatName,
             teamSize(a),
             teamSize(b),
+            update.abandoned ? 1 : 0,
           ],
         );
         if (options?.scheduleId) {
@@ -236,8 +263,11 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
       return rows.map((m) => ({
         id: m.id,
         status: m.status,
+        abandoned: m.abandoned === 1,
+        pause: pauseOf(m),
         teamAName: m.team_a_name,
         teamBName: m.team_b_name,
+        venue: m.venue,
         summary: m.summary,
         createdAt: m.created_at,
         updatedAt: m.updated_at,
@@ -279,10 +309,11 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
         }
         const now = deps.now();
         await tx.run(INSERT_EVENT_SQL, [matchId, now, ...rowValues(eventToRow(expectedSeq, item))]);
-        await tx.run('UPDATE matches SET event_count = ?, status = ?, summary = ?, updated_at = ? WHERE id = ?', [
+        await tx.run('UPDATE matches SET event_count = ?, status = ?, summary = ?, abandoned = ?, updated_at = ? WHERE id = ?', [
           expectedSeq + 1,
           update.status,
           update.summary,
+          update.abandoned ? 1 : 0,
           now,
           matchId,
         ]);
@@ -305,10 +336,11 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
         }
         const result = await tx.run('DELETE FROM match_events WHERE match_id = ? AND seq = ?', [matchId, expectedCount - 1]);
         if (result.changes !== 1) throw new RepositoryError('DAMAGED', 'The last event of this match could not be found.');
-        await tx.run('UPDATE matches SET event_count = ?, status = ?, summary = ?, updated_at = ? WHERE id = ?', [
+        await tx.run('UPDATE matches SET event_count = ?, status = ?, summary = ?, abandoned = ?, updated_at = ? WHERE id = ?', [
           expectedCount - 1,
           update.status,
           update.summary,
+          update.abandoned ? 1 : 0,
           deps.now(),
           matchId,
         ]);
@@ -348,14 +380,79 @@ export function createMatchRepository(db: Database, deps: RepositoryDeps) {
         for (let i = 0; i < items.length; i++) {
           await tx.run(INSERT_EVENT_SQL, [matchId, times[i].created_at, ...rowValues(eventToRow(fromSeq + i, items[i]))]);
         }
-        await tx.run('UPDATE matches SET status = ?, summary = ?, updated_at = ? WHERE id = ?', [
+        await tx.run('UPDATE matches SET status = ?, summary = ?, abandoned = ?, updated_at = ? WHERE id = ?', [
           update.status,
           update.summary,
+          update.abandoned ? 1 : 0,
           deps.now(),
           matchId,
         ]);
         simulatedFailure(options);
       });
+    },
+
+    /**
+     * Replaces the overs, team sizes, bowling limit and free-hit rule of a match whose history
+     * still has `expectedCount` events, none of them a delivery (the service has replayed the
+     * history on the new setup first).
+     */
+    async updateSettings(
+      matchId: string,
+      expectedCount: number,
+      setup: MatchSetup,
+      update: MatchRowUpdate,
+      options?: WriteOptions,
+    ): Promise<void> {
+      const [a, b] = setup.teams;
+      const r = setup.rules;
+      await db.transaction(async (tx) => {
+        const m = await tx.first<{ event_count: number }>('SELECT event_count FROM matches WHERE id = ?', [matchId]);
+        if (!m) throw new RepositoryError('NOT_FOUND', 'This match no longer exists.');
+        if (m.event_count !== expectedCount) {
+          throw new RepositoryError('CONFLICT', 'The saved match is not in the expected state. Reload and try again.');
+        }
+        const balls = await tx.first<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM match_events WHERE match_id = ? AND type = 'delivery'",
+          [matchId],
+        );
+        if ((balls?.n ?? 0) > 0) {
+          throw new RepositoryError('CONFLICT', 'The first ball has been bowled, so the settings can no longer be changed.');
+        }
+        await tx.run(
+          `UPDATE matches SET overs_per_innings = ?, players_per_side = ?, free_hit_after_no_ball = ?, max_overs_per_bowler = ?,
+             team_a_size = ?, team_b_size = ?, status = ?, summary = ?, abandoned = ?, updated_at = ? WHERE id = ?`,
+          [
+            r.oversPerInnings,
+            Math.max(teamSize(a), teamSize(b)),
+            r.freeHitAfterNoBall ? 1 : 0,
+            r.maxOversPerBowler,
+            teamSize(a),
+            teamSize(b),
+            update.status,
+            update.summary,
+            update.abandoned ? 1 : 0,
+            deps.now(),
+            matchId,
+          ],
+        );
+        simulatedFailure(options);
+      });
+    },
+
+    /** Pauses a match in progress (with an optional short reason), or resumes it (null). */
+    async setPause(matchId: string, pause: { reason: string | null } | null): Promise<MatchPause | null> {
+      const now = deps.now();
+      const r = await db.run(
+        "UPDATE matches SET paused_at = ?, pause_reason = ?, updated_at = ? WHERE id = ? AND status = 'inProgress'",
+        [pause ? now : null, pause?.reason ?? null, now, matchId],
+      );
+      if (r.changes === 0) {
+        const exists = await db.first<{ id: string }>('SELECT id FROM matches WHERE id = ?', [matchId]);
+        throw exists
+          ? new RepositoryError('CONFLICT', 'The match is already complete.')
+          : new RepositoryError('NOT_FOUND', 'This match no longer exists.');
+      }
+      return pause ? { pausedAt: now, reason: pause.reason } : null;
     },
 
     /** Saves the awards (the service checks them against the match first). */

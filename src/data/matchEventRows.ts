@@ -24,6 +24,10 @@ export interface EventRow {
   /** The team a player joins, and their name then, for addPlayer (schema 8). */
   team_id: string | null;
   player_name: string | null;
+  /** New overs, revised target (null = none) and bowling limit (null = no limit) for reviseOvers (schema 9). */
+  revised_overs: number | null;
+  revised_target: number | null;
+  revised_bowler_limit: number | null;
   batter_runs: number | null;
   extras_wides: number | null;
   extras_no_balls: number | null;
@@ -57,6 +61,9 @@ export const EVENT_COLUMNS: (keyof EventRow)[] = [
   'retirement',
   'team_id',
   'player_name',
+  'revised_overs',
+  'revised_target',
+  'revised_bowler_limit',
   'batter_runs',
   'extras_wides',
   'extras_no_balls',
@@ -101,6 +108,9 @@ export function eventToRow(seq: number, { event, inningsIndex, record }: EventTo
     retirement: null,
     team_id: null,
     player_name: null,
+    revised_overs: null,
+    revised_target: null,
+    revised_bowler_limit: null,
     batter_runs: null,
     extras_wides: null,
     extras_no_balls: null,
@@ -133,9 +143,15 @@ export function eventToRow(seq: number, { event, inningsIndex, record }: EventTo
       row.player_id = event.playerId;
       row.player_name = event.name;
       break;
+    case 'reviseOvers':
+      row.revised_overs = event.overs;
+      row.revised_target = event.target;
+      row.revised_bowler_limit = event.maxOversPerBowler;
+      break;
     case 'swapBatters':
     case 'abandon':
     case 'endInnings':
+    case 'closeInnings':
     case 'superOver':
       break; // the type is the whole event
     case 'delivery': {
@@ -217,9 +233,17 @@ export function rowToEvent(row: EventRow): MatchEvent {
         playerId: need(row.player_id, 'the player', s),
         name: need(row.player_name, "the player's name", s),
       };
+    case 'reviseOvers':
+      return {
+        type: 'reviseOvers',
+        overs: need(row.revised_overs, 'the number of overs', s),
+        target: row.revised_target,
+        maxOversPerBowler: row.revised_bowler_limit,
+      };
     case 'swapBatters':
     case 'abandon':
     case 'endInnings':
+    case 'closeInnings':
     case 'superOver':
       return { type: row.type };
     case 'delivery': {
