@@ -174,6 +174,24 @@ restore. These checks cover what only a real phone can show. Run them on the **r
 - [ ] Restore a backup made before this version: matches, results and abandoned matches are right,
       and nothing is paused.
 
+## Player batting hand and role, and searching players and teams
+
+- [ ] Players > Add player: type a name, choose Left-hand bat and Bowler, tap "Add, then add
+      another": "Added …" shows and the form is empty again. Add one more with nothing chosen,
+      with "Add player": it returns to the list. The first shows "Bowler · Left-hand bat" under
+      the name; the second shows nothing under it.
+- [ ] Open a player: the choices are shown; tap the selected role again to clear it, choose
+      Wicket-keeper, Save changes. Close and reopen the app: the change is kept. An archived
+      player's choices are greyed out.
+- [ ] Players search: part of a name, "bowler", "left", and "left bowler" each show the right
+      players; ✕ clears the search; nonsense shows "No players found".
+- [ ] Teams search: part of a team name finds the team; a player's name finds every team they are
+      on, with "Player: …" under the team.
+- [ ] Edit a team: the roster shows each player's role, the search narrows the checklist, and
+      players ticked before searching stay ticked (the "selected" count does not change).
+- [ ] Backup, then restore: the batting hands and roles are back. A backup made before this
+      version restores with none set.
+
 ## Icon, splash screen and intro (release APK)
 
 - [ ] The home-screen icon is the white batter with the red ball on green, in round and

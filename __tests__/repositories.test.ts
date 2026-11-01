@@ -15,7 +15,7 @@ describe('players', () => {
     const b = await repos.players.create('bravo');
     await repos.players.create('Alpha');
     expect((await repos.players.list()).map((p) => p.name)).toEqual(['Alpha', 'bravo']);
-    await repos.players.rename(b.id, 'Zulu');
+    await repos.players.update(b.id, 'Zulu');
     expect((await repos.players.get(b.id))?.name).toBe('Zulu');
   });
 
@@ -44,7 +44,27 @@ describe('players', () => {
 
   it('reports NOT_FOUND for unknown IDs', async () => {
     const { repos } = await setup();
-    await expect(repos.players.rename('nope', 'X')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(repos.players.update('nope', 'X')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(repos.players.update('nope', 'X', { battingHand: 'left', role: null })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('stores the batting hand and role; both are optional', async () => {
+    const { db, repos } = await setup();
+    const plain = await repos.players.create('Plain');
+    expect(plain).toMatchObject({ battingHand: null, role: null });
+    const keeper = await repos.players.create('Keeper', { battingHand: 'left', role: 'wicketKeeper' });
+    expect(await repos.players.get(keeper.id)).toMatchObject({ battingHand: 'left', role: 'wicketKeeper' });
+
+    // A new name alone keeps them; a new profile replaces them.
+    await repos.players.update(keeper.id, 'Keeper Two');
+    expect(await repos.players.get(keeper.id)).toMatchObject({ name: 'Keeper Two', battingHand: 'left', role: 'wicketKeeper' });
+    await repos.players.update(keeper.id, 'Keeper Two', { battingHand: 'right', role: null });
+    expect(await repos.players.get(keeper.id)).toMatchObject({ battingHand: 'right', role: null });
+    expect((await repos.players.list()).map((p) => p.role)).toEqual([null, null]);
+
+    // The database refuses values outside the lists.
+    await expect(db.run("UPDATE players SET role = 'captain' WHERE id = ?", [plain.id])).rejects.toThrow();
+    await expect(db.run("UPDATE players SET batting_hand = 'both' WHERE id = ?", [plain.id])).rejects.toThrow();
   });
 });
 

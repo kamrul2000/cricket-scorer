@@ -44,7 +44,7 @@ async function populatedApp() {
   const { repos, matches } = app;
   const a = await Promise.all(['A1', 'A2', 'A3'].map((n) => repos.players.create(n)));
   const b = await Promise.all(['B1', 'B2', 'B3'].map((n) => repos.players.create(n)));
-  const spare = await repos.players.create('Spare');
+  const spare = await repos.players.create('Spare', { battingHand: 'left', role: 'allRounder' });
   await repos.players.setArchived(spare.id, true);
   const teamA = await repos.teams.create('Alpha', a.map((p) => p.id));
   const teamB = await repos.teams.create('Bravo', b.map((p) => p.id));
@@ -130,6 +130,10 @@ describe('restore', () => {
     await target.backups.restore(preview.backup);
 
     expect(await target.repos.backups.exportAll()).toEqual(await source.repos.backups.exportAll());
+    expect((await target.repos.players.list({ includeArchived: true })).find((p) => p.name === 'Spare')).toMatchObject({
+      battingHand: 'left',
+      role: 'allRounder',
+    });
     for (const id of [source.doneId, source.liveId]) {
       const restored = (await target.matches.loadMatch(id))!;
       expect(restored.state).toEqual((await source.matches.loadMatch(id))!.state);
@@ -212,6 +216,8 @@ describe('invalid backups are rejected before anything is written', () => {
     ['an unknown column', (f) => (f.data.players[0].nickname = 'x'), /unknown field "nickname"/],
     ['a fractional number', (f) => (f.data.matches[0].overs_per_innings = 1.5), /invalid "overs_per_innings"/],
     ['an invalid name', (f) => (f.data.players[0].name = '   '), /invalid name/],
+    ['an unknown player role', (f) => (f.data.players[0].role = 'captain'), /unknown role/],
+    ['an unknown batting hand', (f) => (f.data.players[0].batting_hand = 'both'), /unknown batting hand/],
     ['a duplicate ID', (f) => f.data.players.push({ ...f.data.players[0] }), /share the ID/],
     ['duplicate active team names', (f) => (f.data.teams[1].name = f.data.teams[0].name.toUpperCase()), /both named/],
     ['a roster entry for a missing player', (f) => (f.data.teamPlayers[0].player_id = 'ghost'), /missing player \(ghost\)/],

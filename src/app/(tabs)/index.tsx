@@ -2,29 +2,21 @@
 // and abandoned matches, with a search over teams, venue, date and result.
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { SectionList, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SectionList, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '../../components/Button';
 import { ListRow } from '../../components/ListRow';
+import { SearchField } from '../../components/SearchField';
 import { EmptyState, ErrorBanner, ErrorView, LoadingView } from '../../components/StateViews';
 import { TeamLogo } from '../../components/TeamLogo';
 import { useRepositories } from '../../data/AppDataProvider';
 import type { MatchSummary } from '../../data/matchRepository';
 import { formatLabel, formatMatchDate, formatMatchTime, upcomingOrder, type ScheduledMatch } from '../../domain/schedule';
 import { useFocusLoad } from '../../hooks/useFocusLoad';
-import { colors, font, MIN_TOUCH, radius, spacing } from '../../theme/theme';
+import { colors, font, spacing } from '../../theme/theme';
+import { matchesSearch } from '../../utils/search';
 
 type Item = { kind: 'match'; match: MatchSummary } | { kind: 'schedule'; schedule: ScheduledMatch };
-
-/** Every word of the search must appear somewhere in the text (case does not matter). */
-function matchesSearch(text: string, query: string): boolean {
-  const haystack = text.toLowerCase();
-  return query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((word) => haystack.includes(word));
-}
 
 export default function MatchesScreen() {
   const { matches, schedules, teams } = useRepositories();
@@ -100,16 +92,11 @@ export default function MatchesScreen() {
       </View>
       {hasAny ? (
         <View style={styles.searchWrap}>
-          <TextInput
+          <SearchField
             value={query}
             onChangeText={setQuery}
             placeholder="Search team, venue, date or result"
-            placeholderTextColor={colors.textMuted}
-            style={styles.search}
             accessibilityLabel="Search matches"
-            returnKeyType="search"
-            autoCorrect={false}
-            clearButtonMode="while-editing"
           />
         </View>
       ) : null}
@@ -151,16 +138,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   top: { padding: spacing.md, flexDirection: 'row', gap: spacing.sm },
   searchWrap: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
-  search: {
-    minHeight: MIN_TOUCH,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    fontSize: font.body,
-    color: colors.text,
-  },
   flex: { flex: 1 },
   list: { padding: spacing.md, paddingTop: 0, flexGrow: 1 },
   section: { fontSize: font.body, fontWeight: '800', color: colors.textMuted, marginTop: spacing.md, marginBottom: spacing.sm },

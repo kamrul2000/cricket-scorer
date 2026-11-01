@@ -114,12 +114,19 @@ export function createTeamRepository(db: Database, deps: RepositoryDeps) {
   return {
     async list(options: { includeArchived?: boolean } = {}): Promise<TeamSummary[]> {
       const where = options.includeArchived ? '' : 'WHERE t.archived_at IS NULL';
-      const rows = await db.all<TeamRow & { player_count: number }>(
-        `SELECT t.*, (SELECT COUNT(*) FROM team_players tp WHERE tp.team_id = t.id) AS player_count
+      // Names never contain a line break (validateName collapses whitespace), so it separates them.
+      const rows = await db.all<TeamRow & { player_count: number; player_names: string | null }>(
+        `SELECT t.*, (SELECT COUNT(*) FROM team_players tp WHERE tp.team_id = t.id) AS player_count,
+                (SELECT group_concat(p.name, char(10)) FROM team_players tp JOIN players p ON p.id = tp.player_id
+                  WHERE tp.team_id = t.id) AS player_names
            FROM teams t ${where}
           ORDER BY t.name COLLATE NOCASE, t.id`,
       );
-      return rows.map((r) => ({ ...toTeam(r), playerCount: r.player_count }));
+      return rows.map((r) => ({
+        ...toTeam(r),
+        playerCount: r.player_count,
+        playerNames: r.player_names ? r.player_names.split('\n') : [],
+      }));
     },
 
     async get(id: string): Promise<TeamWithRoster | null> {

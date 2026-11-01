@@ -15,6 +15,11 @@ export interface EntityRow {
   archived_at: string | null;
 }
 
+export interface PlayerRow extends EntityRow {
+  batting_hand: string | null;
+  role: string | null;
+}
+
 export interface TeamRow extends EntityRow {
   description: string;
   logo_file: string | null;
@@ -32,7 +37,7 @@ export type MatchEventBackupRow = EventRow & { match_id: string; created_at: str
 
 /** All app data, one array of rows per table. */
 export interface BackupData {
-  players: EntityRow[];
+  players: PlayerRow[];
   teams: TeamRow[];
   teamPlayers: TeamPlayerRow[];
   matches: MatchRow[];
@@ -85,7 +90,7 @@ function eventColumnKind(c: string): ColumnKind {
 }
 
 export const BACKUP_TABLES: Record<BackupTableKey, TableSpec> = {
-  players: { table: 'players', columns: ENTITY_COLUMNS, orderBy: 'created_at, id' },
+  players: { table: 'players', columns: { ...ENTITY_COLUMNS, batting_hand: 'text?', role: 'text?' }, orderBy: 'created_at, id' },
   teams: {
     table: 'teams',
     columns: { ...ENTITY_COLUMNS, description: 'string', logo_file: 'text?', captain_id: 'text?', vice_captain_id: 'text?' },

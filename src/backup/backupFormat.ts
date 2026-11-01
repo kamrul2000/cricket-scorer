@@ -26,7 +26,7 @@ import { PAUSE_REASON_MAX_LENGTH, storedMatchFromRows, type MatchRow } from '../
 import { LATEST_SCHEMA_VERSION } from '../data/migrations';
 import { RepositoryError } from '../data/RepositoryError';
 import { awardsError } from '../domain/awards';
-import { leadershipError, validateDescription, validateName } from '../domain/people';
+import { isBattingHand, isPlayerRole, leadershipError, validateDescription, validateName } from '../domain/people';
 import { FORMAT_MAX_LENGTH, validateSchedule, VENUE_MAX_LENGTH } from '../domain/schedule';
 import { validateMatchSetup } from '../domain/setupValidation';
 import { rowUpdate, storableEvents, toLoaded } from '../services/matchService';
@@ -240,6 +240,11 @@ const UPGRADES: Record<number, (d: Record<string, unknown>) => Record<string, un
     matches: mapRows(d.matches, (m) => ({ ...m, abandoned: 0, paused_at: null, pause_reason: null })),
     matchEvents: mapRows(d.matchEvents, (e) => ({ ...e, revised_overs: null, revised_target: null, revised_bowler_limit: null })),
   }),
+  // 9 -> 10: batting hand and role of players (not set).
+  9: (d) => ({
+    ...d,
+    players: mapRows(d.players, (p) => ({ ...p, batting_hand: null, role: null })),
+  }),
 };
 
 /** Applies `fn` to each row that is an object; anything else is left for the structure check. */
@@ -336,6 +341,10 @@ function checkReferences(d: BackupData): string[] {
       const check = validateName(r.name, label);
       if (!check.ok || check.value !== r.name) errors.push(`${label} ${r.id} has an invalid name.`);
     }
+  }
+  for (const p of d.players) {
+    if (p.batting_hand !== null && !isBattingHand(p.batting_hand)) errors.push(`Player "${p.name}" has an unknown batting hand.`);
+    if (p.role !== null && !isPlayerRole(p.role)) errors.push(`Player "${p.name}" has an unknown role.`);
   }
   const activeTeamNames = new Set<string>();
   for (const t of d.teams.filter((t) => t.archived_at === null)) {

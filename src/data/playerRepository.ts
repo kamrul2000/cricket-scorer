@@ -1,5 +1,5 @@
-import type { Player } from '../domain/people';
-import { validateName } from '../domain/people';
+import type { BattingHand, Player, PlayerProfile, PlayerRole } from '../domain/people';
+import { NO_PROFILE, validateName } from '../domain/people';
 import type { Database } from './database';
 import { RepositoryError } from './RepositoryError';
 import type { RepositoryDeps } from './deps';
@@ -10,6 +10,9 @@ interface PlayerRow {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  /** The table's CHECK constraints allow only these values. */
+  batting_hand: BattingHand | null;
+  role: PlayerRole | null;
 }
 
 export function toPlayer(row: PlayerRow): Player {
@@ -19,6 +22,8 @@ export function toPlayer(row: PlayerRow): Player {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     archivedAt: row.archived_at,
+    battingHand: row.batting_hand,
+    role: row.role,
   };
 }
 
@@ -47,27 +52,29 @@ export function createPlayerRepository(db: Database, deps: RepositoryDeps) {
      * Player names are NOT unique: two real people can share a name, which is why
      * everything refers to players by ID.
      */
-    async create(rawName: string): Promise<Player> {
+    async create(rawName: string, profile: PlayerProfile = NO_PROFILE): Promise<Player> {
       const name = validateName(rawName, 'Player');
       if (!name.ok) throw new RepositoryError('INVALID_NAME', name.error);
       const id = deps.newId();
       const now = deps.now();
+      const { battingHand, role } = profile;
       await db.run(
-        'INSERT INTO players (id, name, created_at, updated_at, archived_at) VALUES (?, ?, ?, ?, NULL)',
-        [id, name.value, now, now],
+        'INSERT INTO players (id, name, created_at, updated_at, archived_at, batting_hand, role) VALUES (?, ?, ?, ?, NULL, ?, ?)',
+        [id, name.value, now, now, battingHand, role],
       );
-      return { id, name: name.value, createdAt: now, updatedAt: now, archivedAt: null };
+      return { id, name: name.value, createdAt: now, updatedAt: now, archivedAt: null, battingHand, role };
     },
 
-    async rename(id: string, rawName: string): Promise<Player> {
+    /** Changes the name and, when given, the batting hand and role (otherwise they are kept). */
+    async update(id: string, rawName: string, profile?: PlayerProfile): Promise<Player> {
       const name = validateName(rawName, 'Player');
       if (!name.ok) throw new RepositoryError('INVALID_NAME', name.error);
-      await requirePlayer(id);
-      await db.run('UPDATE players SET name = ?, updated_at = ? WHERE id = ?', [
-        name.value,
-        deps.now(),
-        id,
-      ]);
+      const { battingHand, role } = profile ?? (await requirePlayer(id));
+      const { changes } = await db.run(
+        'UPDATE players SET name = ?, batting_hand = ?, role = ?, updated_at = ? WHERE id = ?',
+        [name.value, battingHand, role, deps.now(), id],
+      );
+      if (changes === 0) throw new RepositoryError('NOT_FOUND', 'This player no longer exists.');
       return requirePlayer(id);
     },
 

@@ -138,6 +138,7 @@ describe('closing an innings and changing the overs', () => {
     await matches.recordEvent(m, { type: 'abandon' });
     const file = JSON.parse((await backups.createBackup()).json);
     file.schemaVersion = 8;
+    for (const p of file.data.players) for (const c of ['batting_hand', 'role']) delete p[c];
     for (const e of file.data.matchEvents) for (const c of ['revised_overs', 'revised_target', 'revised_bowler_limit']) delete e[c];
     for (const row of file.data.matches) for (const c of ['abandoned', 'paused_at', 'pause_reason']) delete row[c];
     const check = parseBackup(JSON.stringify(file));

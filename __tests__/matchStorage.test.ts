@@ -206,7 +206,7 @@ describe('match storage', () => {
 
   it('later roster or name changes do not alter a saved match', async () => {
     const { repos, service, id, a, teamA } = await started();
-    await repos.players.rename(a[0].id, 'Renamed Player');
+    await repos.players.update(a[0].id, 'Renamed Player');
     await repos.teams.update(teamA.id, 'Alpha Renamed', [a[1].id]);
     const m = (await service.loadMatch(id))!;
     expect(m.setup.teams[0].name).toBe('Alpha');

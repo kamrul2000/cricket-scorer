@@ -402,6 +402,15 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_match_events_added_player ON match_events (player_id) WHERE type = 'addPlayer';
     `,
   },
+  {
+    version: 10,
+    description: 'batting hand and role of players',
+    // Both are optional (NULL = not set), so existing players are unchanged.
+    sql: `
+      ALTER TABLE players ADD COLUMN batting_hand TEXT CHECK (batting_hand IS NULL OR batting_hand IN ('right', 'left'));
+      ALTER TABLE players ADD COLUMN role TEXT CHECK (role IS NULL OR role IN ('batter', 'bowler', 'allRounder', 'wicketKeeper'));
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

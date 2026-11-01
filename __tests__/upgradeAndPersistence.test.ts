@@ -117,12 +117,14 @@ describe('older backups', () => {
     file.formatVersion = 1;
     file.schemaVersion = 2;
     delete file.files;
+    for (const p of file.data.players) for (const c of ['batting_hand', 'role']) delete p[c];
     for (const t of file.data.teams) for (const c of ['description', 'logo_file', 'captain_id', 'vice_captain_id']) delete t[c];
     for (const p of file.data.matchPlayers) for (const c of ['is_substitute', 'role']) delete p[c];
     for (const e of file.data.matchEvents) for (const c of ['retirement', 'team_id', 'player_name', 'revised_overs', 'revised_target', 'revised_bowler_limit']) delete e[c];
     for (const m of file.data.matches) for (const c of ['player_of_match_id', 'best_batter_id', 'best_bowler_id', 'venue', 'format_name', 'team_a_size', 'team_b_size', 'abandoned', 'paused_at', 'pause_reason']) delete m[c];
     const check = parseBackup(JSON.stringify(file));
     if (!check.ok) throw new Error(check.errors.join('\n'));
+    expect(check.backup.file.data.players[0]).toMatchObject({ batting_hand: null, role: null });
     expect(check.backup.file.data.teams[0]).toMatchObject({ description: '', logo_file: null, captain_id: null });
     expect(check.backup.file.data.matchPlayers[0]).toMatchObject({ is_substitute: 0, role: null });
     // Each lineup named the whole team (2 players each).

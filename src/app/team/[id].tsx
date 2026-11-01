@@ -1,4 +1,4 @@
-// Create (id = "new") or edit a team: name plus roster checklist.
+// Create (id = "new") or edit a team: name plus roster checklist (searchable).
 import { Link, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -6,17 +6,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../../components/Button';
 import { Chips } from '../../components/Chips';
+import { SearchField } from '../../components/SearchField';
 import { ErrorBanner, ErrorView, LoadingView } from '../../components/StateViews';
 import { TeamLogo } from '../../components/TeamLogo';
 import { TextField } from '../../components/TextField';
 import { useRepositories } from '../../data/AppDataProvider';
-import { DESCRIPTION_MAX_LENGTH, leadershipError, validateDescription, validateName } from '../../domain/people';
+import { DESCRIPTION_MAX_LENGTH, leadershipError, profileText, validateDescription, validateName } from '../../domain/people';
 import { deviceLogoFiles, pickAndStoreLogo } from '../../files/logoFiles';
 import { removeUnusedLogos } from '../../services/backupService';
 import { useFocusLoad } from '../../hooks/useFocusLoad';
 import { useGuardedAction } from '../../hooks/useGuardedAction';
 import { colors, font, MIN_TOUCH, radius, spacing } from '../../theme/theme';
 import { errorMessage } from '../../utils/errors';
+import { matchesSearch } from '../../utils/search';
 
 export default function TeamScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -44,6 +46,7 @@ export default function TeamScreen() {
   const [logoFile, setLogoFile] = useState<string | null>(null);
   const [captainId, setCaptainId] = useState<string | null>(null);
   const [viceCaptainId, setViceCaptainId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
 
   // Fill the form once when data first arrives, so later refreshes never wipe typing.
   // (Adjusting state during render, as React recommends, instead of an effect.)
@@ -68,6 +71,8 @@ export default function TeamScreen() {
   const rosterIds = new Set(team?.playerIds ?? []);
   // Show active players, plus archived players who are already on this roster.
   const visible = allPlayers.filter((p) => p.archivedAt === null || rosterIds.has(p.id));
+  // The search only narrows the checklist; players selected but not shown stay selected.
+  const listed = query.trim() ? visible.filter((p) => matchesSearch(`${p.name} ${profileText(p)}`, query)) : visible;
 
   const toggle = (playerId: string) => {
     if (archived) return;
@@ -209,8 +214,11 @@ export default function TeamScreen() {
         </Text>
       ) : (
         <View style={styles.list}>
-          {visible.map((p) => {
+          <SearchField value={query} onChangeText={setQuery} placeholder="Search players" accessibilityLabel="Search players" />
+          {listed.length === 0 ? <Text style={styles.help}>No player matches &quot;{query.trim()}&quot;.</Text> : null}
+          {listed.map((p) => {
             const on = selected.has(p.id);
+            const profile = profileText(p);
             return (
               <Pressable
                 key={p.id}
@@ -222,7 +230,10 @@ export default function TeamScreen() {
                 <View style={[styles.box, on && styles.boxOn]}>
                   {on ? <Text style={styles.tick}>✓</Text> : null}
                 </View>
-                <Text style={styles.playerName}>{p.name}</Text>
+                <View style={styles.playerTexts}>
+                  <Text style={styles.playerName}>{p.name}</Text>
+                  {profile ? <Text style={styles.profile}>{profile}</Text> : null}
+                </View>
                 {p.archivedAt ? <Text style={styles.tag}>Archived</Text> : null}
               </Pressable>
             );
@@ -293,7 +304,9 @@ const styles = StyleSheet.create({
   },
   boxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   tick: { color: colors.onPrimary, fontWeight: '800', fontSize: font.body },
-  playerName: { flex: 1, fontSize: font.large, color: colors.text },
+  playerTexts: { flex: 1, paddingVertical: spacing.xs },
+  playerName: { fontSize: font.large, color: colors.text },
+  profile: { fontSize: font.small, color: colors.textMuted },
   tag: { fontSize: font.small, fontWeight: '700', color: colors.textMuted },
   logoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   logoButtons: { flex: 1, gap: spacing.sm },

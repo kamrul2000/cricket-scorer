@@ -1,3 +1,5 @@
+// Add a player (id = "new") or edit one: name, batting hand and role, plus teams and career
+// figures for an existing player.
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -5,18 +7,89 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../../components/Button';
 import { CareerStats } from '../../components/CareerStats';
+import { PlayerProfileFields } from '../../components/PlayerProfileFields';
 import { ErrorBanner, ErrorView, LoadingView } from '../../components/StateViews';
 import { TextField } from '../../components/TextField';
 import { useMatchService, useRepositories } from '../../data/AppDataProvider';
-import { validateName } from '../../domain/people';
+import { NO_PROFILE, validateName, type PlayerProfile } from '../../domain/people';
 import { playerCareer } from '../../domain/stats';
 import { useFocusLoad } from '../../hooks/useFocusLoad';
 import { useGuardedAction } from '../../hooks/useGuardedAction';
-import { colors, font, spacing } from '../../theme/theme';
+import { colors, font, radius, spacing } from '../../theme/theme';
 import { errorMessage } from '../../utils/errors';
 
 export default function PlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  return id === 'new' ? <NewPlayer /> : <EditPlayer id={id} />;
+}
+
+function NewPlayer() {
+  const { players } = useRepositories();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { run, pending } = useGuardedAction();
+
+  const [name, setName] = useState('');
+  const [profile, setProfile] = useState<PlayerProfile>(NO_PROFILE);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [added, setAdded] = useState<string | null>(null);
+
+  const add = (another: boolean) =>
+    run(async () => {
+      const check = validateName(name, 'Player');
+      if (!check.ok) {
+        setFieldError(check.error);
+        return;
+      }
+      try {
+        const player = await players.create(check.value, profile);
+        if (!another) {
+          router.back();
+          return;
+        }
+        setName('');
+        setProfile(NO_PROFILE);
+        setActionError(null);
+        setAdded(player.name);
+      } catch (e) {
+        setActionError(errorMessage(e)); // the form stays filled so the user can retry
+      }
+    });
+
+  return (
+    <ScrollView
+      contentContainerStyle={[styles.content, { paddingBottom: spacing.lg + insets.bottom }]}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Stack.Screen options={{ title: 'New player' }} />
+      {actionError ? <ErrorBanner message={actionError} /> : null}
+      {added ? <Text style={styles.added}>Added {added}. Type the next player&apos;s name.</Text> : null}
+
+      <TextField
+        label="Player name"
+        value={name}
+        onChangeText={(t) => {
+          setName(t);
+          setFieldError(null);
+          setAdded(null);
+        }}
+        placeholder="e.g. Rahim Uddin"
+        maxLength={80}
+        autoCapitalize="words"
+        autoFocus
+        returnKeyType="done"
+        error={fieldError}
+      />
+      <PlayerProfileFields value={profile} onChange={setProfile} />
+
+      <Button title="Add player" onPress={() => void add(false)} loading={pending} />
+      <Button title="Add, then add another" variant="secondary" onPress={() => void add(true)} disabled={pending} />
+    </ScrollView>
+  );
+}
+
+function EditPlayer({ id }: { id: string }) {
   const { players } = useRepositories();
   const matchService = useMatchService();
   const router = useRouter();
@@ -35,16 +108,18 @@ export default function PlayerScreen() {
   );
 
   const [name, setName] = useState('');
+  const [profile, setProfile] = useState<PlayerProfile>(NO_PROFILE);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Copy the saved name into the form whenever it changes (adjusting state during render,
-  // as React recommends, instead of an effect).
-  const loadedName = data?.player?.name;
-  const [syncedName, setSyncedName] = useState<string | undefined>(undefined);
-  if (loadedName !== undefined && loadedName !== syncedName) {
-    setSyncedName(loadedName);
-    setName(loadedName);
+  // Copy the saved player into the form whenever it changes (adjusting state during render,
+  // as React recommends, instead of an effect). Returning to the screen keeps unsaved typing.
+  const loaded = data?.player;
+  const [syncedAt, setSyncedAt] = useState<string | undefined>(undefined);
+  if (loaded && loaded.updatedAt !== syncedAt) {
+    setSyncedAt(loaded.updatedAt);
+    setName(loaded.name);
+    setProfile({ battingHand: loaded.battingHand, role: loaded.role });
   }
 
   if (error && !data) return <ErrorView message={error} onRetry={reload} />;
@@ -62,7 +137,7 @@ export default function PlayerScreen() {
         return;
       }
       try {
-        await players.rename(player.id, check.value);
+        await players.update(player.id, check.value, profile);
         router.back();
       } catch (e) {
         setActionError(errorMessage(e));
@@ -113,6 +188,7 @@ export default function PlayerScreen() {
         autoCapitalize="words"
         error={fieldError}
       />
+      <PlayerProfileFields value={profile} onChange={setProfile} disabled={archived} />
 
       <View style={styles.section}>
         <Text style={styles.heading}>Teams</Text>
@@ -127,7 +203,7 @@ export default function PlayerScreen() {
         <Button title="Restore player" onPress={() => void changeArchived(false)} loading={pending} />
       ) : (
         <>
-          <Button title="Save name" onPress={save} loading={pending} />
+          <Button title="Save changes" onPress={save} loading={pending} />
           <Button title="Archive player" variant="danger" onPress={confirmArchive} disabled={pending} />
         </>
       )}
@@ -137,7 +213,8 @@ export default function PlayerScreen() {
 
 const styles = StyleSheet.create({
   content: { padding: spacing.md, gap: spacing.md },
-  note: { fontSize: font.body, color: colors.text, backgroundColor: colors.warningBg, padding: spacing.md, borderRadius: 8 },
+  note: { fontSize: font.body, color: colors.text, backgroundColor: colors.warningBg, padding: spacing.md, borderRadius: radius.sm },
+  added: { fontSize: font.body, fontWeight: '600', color: colors.primaryDark, backgroundColor: '#E6F2EC', padding: spacing.md, borderRadius: radius.sm },
   section: { gap: spacing.xs },
   heading: { fontSize: font.body, fontWeight: '600', color: colors.text },
   body: { fontSize: font.body, color: colors.textMuted },

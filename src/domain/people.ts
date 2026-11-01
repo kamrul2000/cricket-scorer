@@ -1,6 +1,38 @@
 // Plain types and rules for players and teams. No React, no SQLite.
 
-export interface Player {
+export const BATTING_HANDS = ['right', 'left'] as const;
+export type BattingHand = (typeof BATTING_HANDS)[number];
+
+export const PLAYER_ROLES = ['batter', 'bowler', 'allRounder', 'wicketKeeper'] as const;
+export type PlayerRole = (typeof PLAYER_ROLES)[number];
+
+export const BATTING_HAND_LABELS: Record<BattingHand, string> = { right: 'Right-hand bat', left: 'Left-hand bat' };
+export const PLAYER_ROLE_LABELS: Record<PlayerRole, string> = {
+  batter: 'Batter',
+  bowler: 'Bowler',
+  allRounder: 'All-rounder',
+  wicketKeeper: 'Wicket-keeper',
+};
+
+export const isBattingHand = (v: unknown): v is BattingHand => (BATTING_HANDS as readonly unknown[]).includes(v);
+export const isPlayerRole = (v: unknown): v is PlayerRole => (PLAYER_ROLES as readonly unknown[]).includes(v);
+
+/** How a player plays. Both are optional (null = not set), e.g. for players added during a match. */
+export interface PlayerProfile {
+  battingHand: BattingHand | null;
+  role: PlayerRole | null;
+}
+
+export const NO_PROFILE: PlayerProfile = { battingHand: null, role: null };
+
+/** e.g. "All-rounder · Left-hand bat"; empty when neither is set. */
+export function profileText(profile: PlayerProfile): string {
+  return [profile.role && PLAYER_ROLE_LABELS[profile.role], profile.battingHand && BATTING_HAND_LABELS[profile.battingHand]]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+export interface Player extends PlayerProfile {
   id: string;
   name: string;
   createdAt: string;
@@ -46,6 +78,8 @@ export function leadershipError(playerIds: readonly string[], captainId: string 
 
 export interface TeamSummary extends Team {
   playerCount: number;
+  /** Names of the players on the roster, in no particular order (for searching). */
+  playerNames: string[];
 }
 
 export interface TeamWithRoster extends Team {
