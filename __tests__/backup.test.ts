@@ -103,12 +103,12 @@ describe('backup export', () => {
       exportedAt: '2026-10-18T15:30:00.000Z',
     });
     expect(backup.summary).toEqual({ players: 7, teams: 2, matches: 2, inProgress: 1, completed: 1 });
-    expect(backup.fileName).toMatch(/^cricmate-backup-\d{4}-\d{2}-\d{2}-\d{4}\.json$/);
+    expect(backup.fileName).toMatch(/^cricmate-cricket-scorer-backup-\d{4}-\d{2}-\d{2}-\d{4}\.json$/);
     expect(parseBackup(backup.json).ok).toBe(true);
   });
 
   it('names files by local date and time', () => {
-    expect(backupFileName(new Date(2026, 0, 5, 9, 7))).toBe('cricmate-backup-2026-01-05-0907.json');
+    expect(backupFileName(new Date(2026, 0, 5, 9, 7))).toBe('cricmate-cricket-scorer-backup-2026-01-05-0907.json');
   });
 
   it('refuses to create a backup of damaged data, instead of saving one that cannot be restored', async () => {
@@ -205,7 +205,7 @@ describe('restore', () => {
 describe('invalid backups are rejected before anything is written', () => {
   type Tamper = (file: any) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
   const cases: [string, Tamper, RegExp][] = [
-    ['an unknown format marker', (f) => (f.format = 'something-else'), /not a CricMate backup/],
+    ['an unknown format marker', (f) => (f.format = 'something-else'), /not a CricMate – Cricket Scorer backup/],
     ['a newer backup format', (f) => (f.formatVersion = BACKUP_FORMAT_VERSION + 1), /newer version of the app/],
     ['a newer database schema', (f) => (f.schemaVersion = LATEST_SCHEMA_VERSION + 1), /newer version of the app/],
     ['an older database schema', (f) => (f.schemaVersion = 1), /not supported/],
@@ -266,7 +266,7 @@ describe('invalid backups are rejected before anything is written', () => {
 
   it('rejects text that is not JSON, or JSON that is not a backup', () => {
     expect(parseBackup('{"format": "local-cricket-')).toEqual({ ok: false, errors: [expect.stringMatching(/not valid JSON/)] });
-    expect(parseBackup('[1, 2, 3]')).toEqual({ ok: false, errors: [expect.stringMatching(/not a CricMate backup/)] });
+    expect(parseBackup('[1, 2, 3]')).toEqual({ ok: false, errors: [expect.stringMatching(/not a CricMate – Cricket Scorer backup/)] });
     expect(parseBackup('')).toMatchObject({ ok: false });
   });
 

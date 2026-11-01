@@ -14,6 +14,7 @@
 //   4. Every match's setup is valid and its event history replays through the scoring engine.
 // The engine's derived columns (runs per delivery, match status and summary, ...) are then
 // recomputed from the events, so the restored data always agrees with the events.
+import { APP_NAME } from '../appInfo';
 import {
   BACKUP_TABLES,
   INSERT_ORDER,
@@ -96,10 +97,10 @@ export function serializeBackup(file: BackupFile): string {
   return JSON.stringify(file, null, 1);
 }
 
-/** e.g. cricmate-backup-2026-10-18-1530.json (local time). Restoring checks the contents, not the name. */
+/** e.g. cricmate-cricket-scorer-backup-2026-10-18-1530.json (local time). Restoring checks the contents, not the name. */
 export function backupFileName(date: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
-  return `cricmate-backup-${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}.json`;
+  return `cricmate-cricket-scorer-backup-${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}.json`;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -120,7 +121,7 @@ export function parseBackup(text: string): BackupCheck {
     return fail(['This file is not a backup: it is not valid JSON. It may be damaged or incomplete.']);
   }
   if (!isObject(json) || json.format !== BACKUP_FORMAT) {
-    return fail(['This file is not a CricMate backup.']);
+    return fail([`This file is not a ${APP_NAME} backup.`]);
   }
   const { formatVersion, schemaVersion, appVersion, exportedAt } = json;
   if (!Number.isInteger(formatVersion) || !Number.isInteger(schemaVersion)) {

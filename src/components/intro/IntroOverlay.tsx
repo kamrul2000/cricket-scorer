@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { APP_NAME, APP_SHORT_NAME, APP_TAGLINE, DEVELOPER } from '../../appInfo';
+import { APP_BRAND, APP_NAME, APP_TAGLINE, DEVELOPER } from '../../appInfo';
 
 const LOGO = require('../../../assets/intro/logo.png');
 const GLOW = require('../../../assets/intro/glow.png');
@@ -250,8 +250,7 @@ export function IntroOverlay({ onDone }: Props) {
             />
           </View>
           <Animated.Text style={[styles.title, { opacity: v.titleA, transform: [{ translateY: v.titleY }] }]}>
-            {APP_SHORT_NAME.toUpperCase()}
-            {'\n'}
+            {APP_BRAND.toUpperCase()} –{'\n'}
             <Text style={styles.tagline}>{APP_TAGLINE.toUpperCase()}</Text>
           </Animated.Text>
           <Animated.View style={[styles.line, { transform: [{ scaleX: v.line }] }]} />
@@ -297,7 +296,9 @@ export function IntroOverlay({ onDone }: Props) {
         <Image source={SCRIM} style={[styles.scrim, { height: height * 0.5 }]} resizeMode="stretch" />
         <View style={[styles.brandTag, { top: insets.top + 14 }]}>
           <Image source={LOGO} style={{ width: 22 * LOGO_ASPECT, height: 22 }} />
-          <Text style={styles.brandTagText}>{APP_SHORT_NAME}</Text>
+          <Text style={styles.brandTagText} numberOfLines={1}>
+            {APP_NAME}
+          </Text>
         </View>
         <View style={[styles.caption, { bottom: insets.bottom + 48 }]}>
           <Animated.Text style={[styles.captionLabel, { opacity: v.labelA, transform: [{ translateY: v.labelY }] }]}>
@@ -324,8 +325,9 @@ const styles = StyleSheet.create({
   clip: { overflow: 'hidden' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, gap: 14 },
   ring: { position: 'absolute', borderWidth: 2, borderColor: GOLD },
-  title: { color: '#FFFFFF', fontSize: 30, fontWeight: '900', letterSpacing: 5, textAlign: 'center', marginTop: 10 },
-  tagline: { color: GOLD, fontSize: 13, fontWeight: '800', letterSpacing: 4 },
+  // Two lines, "CRICMATE –" and "CRICKET SCORER", narrow enough for a 320 dp wide phone.
+  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', letterSpacing: 3, textAlign: 'center', marginTop: 10 },
+  tagline: { color: GOLD },
   line: { width: 72, height: 3, borderRadius: 2, backgroundColor: GOLD },
   creditLabel: { color: '#9FD4BE', fontSize: 11, fontWeight: '800', letterSpacing: 3, marginTop: 6 },
   creditName: { color: '#FFFFFF', fontSize: 20, fontWeight: '800', marginTop: 4, textAlign: 'center' },
@@ -334,8 +336,9 @@ const styles = StyleSheet.create({
   cards: { position: 'absolute', left: 16, right: 16, gap: CARD_GAP },
   card: { borderRadius: 14, overflow: 'hidden', borderWidth: 2, borderColor: 'rgba(255,255,255,0.85)', backgroundColor: '#0B2A1F' },
   scrim: { position: 'absolute', left: 0, right: 0, bottom: 0, width: '100%' },
-  brandTag: { position: 'absolute', left: 16, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  brandTagText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800', letterSpacing: 1, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
+  // Stops short of the Skip button on the right.
+  brandTag: { position: 'absolute', left: 16, right: 104, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  brandTagText: { flexShrink: 1, color: '#FFFFFF', fontSize: 13, fontWeight: '800', letterSpacing: 1, textShadowColor: 'rgba(0,0,0,0.5)', textShadowRadius: 4 },
   caption: { position: 'absolute', left: 24, right: 24, alignItems: 'flex-start' },
   captionLabel: { color: GOLD, fontSize: 12, fontWeight: '800', letterSpacing: 3 },
   captionTitle: { color: '#FFFFFF', fontSize: 34, fontWeight: '900', marginTop: 4 },
