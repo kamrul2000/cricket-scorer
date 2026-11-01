@@ -31,6 +31,7 @@ import { FORMAT_MAX_LENGTH, validateSchedule, VENUE_MAX_LENGTH } from '../domain
 import { validateMatchSetup } from '../domain/setupValidation';
 import { rowUpdate, storableEvents, toLoaded } from '../services/matchService';
 
+/** Kept from the app's first name: every backup ever made carries it. */
 export const BACKUP_FORMAT = 'local-cricket-scorer-backup';
 /** 1 = data only (Stage 4). 2 = adds `files` with team logos. */
 export const BACKUP_FORMAT_VERSION = 2;
@@ -95,10 +96,10 @@ export function serializeBackup(file: BackupFile): string {
   return JSON.stringify(file, null, 1);
 }
 
-/** e.g. cricket-scorer-backup-2026-10-18-1530.json (local time). */
+/** e.g. cricmate-backup-2026-10-18-1530.json (local time). Restoring checks the contents, not the name. */
 export function backupFileName(date: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
-  return `cricket-scorer-backup-${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}.json`;
+  return `cricmate-backup-${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}.json`;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -119,7 +120,7 @@ export function parseBackup(text: string): BackupCheck {
     return fail(['This file is not a backup: it is not valid JSON. It may be damaged or incomplete.']);
   }
   if (!isObject(json) || json.format !== BACKUP_FORMAT) {
-    return fail(['This file is not a Local Cricket Scorer backup.']);
+    return fail(['This file is not a CricMate backup.']);
   }
   const { formatVersion, schemaVersion, appVersion, exportedAt } = json;
   if (!Number.isInteger(formatVersion) || !Number.isInteger(schemaVersion)) {

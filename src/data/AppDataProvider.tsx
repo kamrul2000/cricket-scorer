@@ -14,6 +14,7 @@ import { wrapExpoDatabase } from './database';
 import { migrate } from './migrations';
 import { createRepositories, type Repositories } from './repositories';
 
+/** Kept from the app's first name: renaming the file would leave everyone's data behind. */
 export const DATABASE_NAME = 'cricket-scorer.db';
 
 interface AppData {

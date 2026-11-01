@@ -1,4 +1,4 @@
-# Cricket Scorer: supported scoring rules (version 1)
+# CricMate – Cricket Scorer: supported scoring rules (version 1)
 
 This app is a scorebook for **casual and club limited-overs cricket**. It follows the MCC
 Laws of Cricket where it implements a situation, and it rejects situations it does not

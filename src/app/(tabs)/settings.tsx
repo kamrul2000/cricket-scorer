@@ -3,7 +3,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { DEVELOPER } from '../../appInfo';
+import { APP_NAME, DEVELOPER } from '../../appInfo';
 import { Button } from '../../components/Button';
 import { useAppData } from '../../data/AppDataProvider';
 import { usePlayIntro } from '../../intro/IntroHost';
@@ -23,7 +23,9 @@ export default function SettingsScreen() {
     <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.card}>
         <Text style={styles.heading}>About</Text>
-        <Text style={styles.line}>Cricket Scorer, version {appVersion}</Text>
+        <Text style={styles.line}>
+          {APP_NAME}, version {appVersion}
+        </Text>
         <Text style={styles.line}>Database schema version {schemaVersion}</Text>
         <Button title="Play the intro" variant="secondary" onPress={playIntro} />
       </View>
